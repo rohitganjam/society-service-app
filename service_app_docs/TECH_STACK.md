@@ -1,0 +1,2559 @@
+# Technology Stack & Architecture
+
+**Version:** 2.0
+**Date:** November 17, 2025
+**Architecture:** Clean Service-Oriented with Flutter Mobile + Node.js Backend
+
+---
+
+## Table of Contents
+
+1. [Executive Summary](#1-executive-summary)
+2. [Architecture Overview](#2-architecture-overview)
+3. [Technology Stack](#3-technology-stack)
+4. [Backend Services (Node.js on Vercel)](#4-backend-services-nodejs-on-vercel)
+5. [Mobile Applications (Flutter)](#5-mobile-applications-flutter)
+6. [Web Applications (Next.js)](#6-web-applications-nextjs)
+7. [Database & Storage (Supabase)](#7-database--storage-supabase)
+8. [Edge Functions & Webhooks](#8-edge-functions--webhooks)
+9. [Third-Party Integrations](#9-third-party-integrations)
+10. [Deployment Strategy](#10-deployment-strategy)
+11. [Development Workflow](#11-development-workflow)
+12. [Infrastructure Costs](#12-infrastructure-costs)
+13. [Security & Performance](#13-security--performance)
+
+---
+
+## 1. Executive Summary
+
+### 1.1 Architecture Philosophy
+
+**Clean Service-Oriented Architecture** with strict separation of concerns:
+
+- **Mobile Apps (Flutter)**: Pure UI rendering + API calls, zero business logic
+- **Backend API (Node.js)**: All business logic, validation, orchestration
+- **Database (Supabase)**: PostgreSQL with Row Level Security
+- **Edge Functions (Supabase)**: Webhooks, cron jobs, background tasks
+- **Web Admin (Next.js)**: Dashboard UI + shared backend API
+
+### 1.2 Key Principles
+
+✅ **Separation of Concerns**: Business logic lives ONLY in backend
+✅ **Single Source of Truth**: Backend API is the only entry point for data operations
+✅ **Thin Clients**: Mobile/Web apps are presentation layers
+✅ **API-First Design**: All features exposed via REST/GraphQL APIs
+✅ **Serverless**: Auto-scaling, zero server management
+✅ **Type Safety**: TypeScript across backend and frontend
+
+### 1.3 Platform Summary
+
+| Component | Technology | Platform | Purpose |
+|-----------|-----------|----------|---------|
+| **Mobile Apps** | Flutter | iOS/Android | UI rendering only |
+| **Backend API** | Node.js (Express) | Vercel | All business logic |
+| **Web Admin** | Next.js 14 | Vercel | Admin dashboard |
+| **Database** | PostgreSQL | Supabase | Data storage |
+| **Edge Functions** | Deno | Supabase | Webhooks, crons |
+| **File Storage** | S3-compatible | Supabase | Images, documents |
+| **Authentication** | Supabase Auth | Supabase | User management |
+| **Payments** | Razorpay | - | UPI/Cash tracking |
+| **Notifications** | Firebase Cloud Messaging | - | Push notifications |
+
+**Total Platforms to Manage:** 3 (Vercel, Supabase, Razorpay)
+
+---
+
+## 2. Architecture Overview
+
+### 2.1 System Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         CLIENTS                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
+│  │  Resident   │  │   Vendor    │  │   Admin Web Dashboard   │ │
+│  │ Flutter App │  │ Flutter App │  │      (Next.js 14)       │ │
+│  │             │  │             │  │                         │ │
+│  │  • UI Only  │  │  • UI Only  │  │    • UI Only            │ │
+│  │  • API Calls│  │  • API Calls│  │    • API Calls          │ │
+│  └──────┬──────┘  └──────┬──────┘  └────────────┬────────────┘ │
+│         │                │                       │               │
+└─────────┼────────────────┼───────────────────────┼───────────────┘
+          │                │                       │
+          │                │                       │
+          └────────────────┴───────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    VERCEL (Node.js Backend)                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │              Express.js API Server                        │  │
+│  ├───────────────────────────────────────────────────────────┤  │
+│  │                                                           │  │
+│  │  /api/v1/                                                │  │
+│  │  ├─ auth/*           - Authentication                    │  │
+│  │  ├─ residents/*      - Resident operations              │  │
+│  │  ├─ vendors/*        - Vendor operations                │  │
+│  │  ├─ orders/*         - Order management                 │  │
+│  │  ├─ payments/*       - Payment processing               │  │
+│  │  ├─ categories/*     - Service categories               │  │
+│  │  ├─ societies/*      - Society management               │  │
+│  │  └─ admin/*          - Admin operations                 │  │
+│  │                                                           │  │
+│  │  Business Logic Layer:                                   │  │
+│  │  ├─ Order Validation                                     │  │
+│  │  ├─ Pricing Calculation                                  │  │
+│  │  ├─ Workflow Orchestration                              │  │
+│  │  ├─ Payment Processing                                   │  │
+│  │  ├─ Notification Triggers                               │  │
+│  │  └─ Analytics & Reporting                               │  │
+│  │                                                           │  │
+│  └───────────────────┬───────────────────────────────────────┘  │
+│                      │                                           │
+└──────────────────────┼───────────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    SUPABASE (Backend Services)                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐  │
+│  │   PostgreSQL     │  │  Edge Functions  │  │   Storage    │  │
+│  │   Database       │  │     (Deno)       │  │  (S3-like)   │  │
+│  ├──────────────────┤  ├──────────────────┤  ├──────────────┤  │
+│  │                  │  │                  │  │              │  │
+│  │ • All tables     │  │ • Webhooks       │  │ • Images     │  │
+│  │ • RLS policies   │  │ • Cron jobs      │  │ • Documents  │  │
+│  │ • Triggers       │  │ • Async tasks    │  │ • Photos     │  │
+│  │ • Functions      │  │ • Integrations   │  │              │  │
+│  │                  │  │                  │  │              │  │
+│  └──────────────────┘  └──────────────────┘  └──────────────┘  │
+│                                                                  │
+│  ┌──────────────────┐  ┌──────────────────┐                    │
+│  │  Supabase Auth   │  │    Realtime      │                    │
+│  ├──────────────────┤  ├──────────────────┤                    │
+│  │                  │  │                  │                    │
+│  │ • JWT tokens     │  │ • Live updates   │                    │
+│  │ • User sessions  │  │ • Subscriptions  │                    │
+│  │ • OTP/Phone auth │  │ • Pub/Sub        │                    │
+│  │                  │  │                  │                    │
+│  └──────────────────┘  └──────────────────┘                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    EXTERNAL SERVICES                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │  Razorpay    │  │     FCM      │  │    Twilio/MSG91      │  │
+│  │  Payments    │  │Push Notifs   │  │        SMS           │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2.2 Request Flow Example
+
+**Resident creates an order:**
+
+```
+1. Resident App (Flutter)
+   └─> Calls: POST /api/v1/orders
+       Body: { laundry_id, items[], pickup_time }
+
+2. Backend API (Node.js on Vercel)
+   ├─> Validates request (auth, data)
+   ├─> Calculates pricing (business logic)
+   ├─> Checks vendor availability
+   ├─> Calculates delivery estimates
+   ├─> Creates order in database
+   ├─> Triggers notification (via edge function)
+   └─> Returns: { order_id, total, estimated_delivery }
+
+3. Supabase PostgreSQL
+   ├─> Inserts into orders table
+   ├─> Inserts into order_items table
+   ├─> Inserts into order_service_status table
+   └─> Returns success
+
+4. Supabase Edge Function (async)
+   ├─> Triggered by new order
+   ├─> Sends push notification to vendor
+   ├─> Sends SMS to vendor (if enabled)
+   └─> Logs notification
+
+5. Resident App
+   └─> Displays order confirmation
+```
+
+**Key Point:** Flutter app NEVER talks directly to database. All operations go through Backend API.
+
+---
+
+## 3. Technology Stack
+
+### 3.1 Mobile Applications
+
+**Technology:** Flutter 3.x
+
+**Why Flutter:**
+- ✅ Single codebase for iOS + Android
+- ✅ Native performance (compiled to native ARM code)
+- ✅ Excellent UI framework with Material Design & Cupertino
+- ✅ Hot reload for fast development
+- ✅ Growing ecosystem with strong Indian market support
+- ✅ Better performance than React Native
+- ✅ Dart language - type-safe, modern, easy to learn
+
+**Flutter Packages:**
+```yaml
+dependencies:
+  flutter_riverpod: ^2.4.0        # State management
+  go_router: ^12.0.0              # Navigation
+  dio: ^5.4.0                     # HTTP client for API calls
+  freezed: ^2.4.0                 # Immutable models
+  json_annotation: ^4.8.0         # JSON serialization
+  flutter_secure_storage: ^9.0.0  # Secure token storage
+  razorpay_flutter: ^1.3.0        # Razorpay integration
+  firebase_messaging: ^14.7.0     # Push notifications
+  image_picker: ^1.0.0            # Camera/gallery
+  cached_network_image: ^3.3.0    # Image caching
+  intl: ^0.18.0                   # Internationalization
+```
+
+**Architecture Pattern:** Clean Architecture
+```
+lib/
+├── core/
+│   ├── api/
+│   │   └── api_client.dart      # Dio HTTP client
+│   ├── models/
+│   │   ├── order.dart
+│   │   ├── vendor.dart
+│   │   └── ...
+│   └── providers/
+│       └── auth_provider.dart
+│
+├── features/
+│   ├── orders/
+│   │   ├── data/
+│   │   │   └── orders_repository.dart  # API calls only
+│   │   ├── domain/
+│   │   │   └── order_model.dart
+│   │   └── presentation/
+│   │       ├── screens/
+│   │       └── widgets/
+│   │
+│   └── vendors/
+│       └── ...
+│
+└── main.dart
+```
+
+**No Business Logic in Flutter:**
+- ❌ No price calculations
+- ❌ No validation beyond basic input
+- ❌ No workflow logic
+- ✅ Only UI rendering
+- ✅ Only API calls to backend
+- ✅ Only local state management
+
+---
+
+### 3.2 Backend API Server
+
+**Technology:** Node.js 20 LTS + Express.js
+
+**Why Node.js:**
+- ✅ JavaScript/TypeScript across frontend and backend
+- ✅ Excellent ecosystem (npm)
+- ✅ Perfect for Vercel serverless functions
+- ✅ Non-blocking I/O for high concurrency
+- ✅ Easy to scale
+- ✅ Large talent pool in India
+
+**Framework:** Express.js 4.x
+
+**Core Dependencies:**
+```json
+{
+  "dependencies": {
+    "express": "^4.18.2",
+    "typescript": "^5.3.0",
+    "@types/express": "^4.17.21",
+
+    "@supabase/supabase-js": "^2.38.0",
+    "zod": "^3.22.4",
+    "express-validator": "^7.0.1",
+
+    "razorpay": "^2.9.2",
+    "node-cron": "^3.0.3",
+    "axios": "^1.6.0",
+
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5",
+    "compression": "^1.7.4",
+    "express-rate-limit": "^7.1.5",
+
+    "winston": "^3.11.0",
+    "dotenv": "^16.3.1"
+  }
+}
+```
+
+**Project Structure:**
+```
+backend/
+├── api/
+│   ├── index.ts                    # Vercel entry point
+│   └── v1/
+│       ├── auth/
+│       │   ├── login.ts
+│       │   ├── verify-otp.ts
+│       │   └── refresh-token.ts
+│       │
+│       ├── orders/
+│       │   ├── create.ts           # POST /api/v1/orders
+│       │   ├── get.ts              # GET /api/v1/orders/:id
+│       │   ├── list.ts             # GET /api/v1/orders
+│       │   ├── update-status.ts    # PATCH /api/v1/orders/:id/status
+│       │   └── cancel.ts           # POST /api/v1/orders/:id/cancel
+│       │
+│       ├── vendors/
+│       │   ├── register.ts
+│       │   ├── rate-cards.ts
+│       │   ├── services.ts
+│       │   └── analytics.ts
+│       │
+│       ├── categories/
+│       │   ├── list.ts
+│       │   └── services.ts
+│       │
+│       └── admin/
+│           ├── societies.ts
+│           ├── subscriptions.ts
+│           └── reports.ts
+│
+├── src/
+│   ├── middleware/
+│   │   ├── auth.ts                 # JWT verification
+│   │   ├── validate.ts             # Request validation
+│   │   ├── error-handler.ts        # Global error handling
+│   │   └── rate-limit.ts           # Rate limiting
+│   │
+│   ├── services/
+│   │   ├── order-service.ts        # Order business logic
+│   │   ├── pricing-service.ts      # Price calculation
+│   │   ├── workflow-service.ts     # Service workflows
+│   │   ├── payment-service.ts      # Payment handling
+│   │   └── notification-service.ts # Send notifications
+│   │
+│   ├── repositories/
+│   │   ├── order-repository.ts     # Database operations
+│   │   ├── vendor-repository.ts
+│   │   └── user-repository.ts
+│   │
+│   ├── models/
+│   │   ├── order.model.ts
+│   │   ├── vendor.model.ts
+│   │   └── user.model.ts
+│   │
+│   ├── utils/
+│   │   ├── supabase.ts             # Supabase client
+│   │   ├── logger.ts               # Winston logger
+│   │   └── helpers.ts
+│   │
+│   └── types/
+│       ├── api.types.ts
+│       └── database.types.ts       # Generated from Supabase
+│
+├── vercel.json                     # Vercel configuration
+├── package.json
+└── tsconfig.json
+```
+
+**Example API Endpoint:**
+```typescript
+// api/v1/orders/create.ts
+import { Request, Response } from 'express';
+import { z } from 'zod';
+import { OrderService } from '@/services/order-service';
+import { authenticate } from '@/middleware/auth';
+import { validate } from '@/middleware/validate';
+
+const createOrderSchema = z.object({
+  laundry_id: z.string().uuid(),
+  society_id: z.number().int(),
+  items: z.array(z.object({
+    service_id: z.number().int(),
+    item_name: z.string(),
+    quantity: z.number().int().positive(),
+    unit_price: z.number().positive()
+  })),
+  pickup_datetime: z.string().datetime(),
+  pickup_address: z.string(),
+  delivery_preference: z.enum(['SINGLE', 'PARTIAL'])
+});
+
+export default authenticate(
+  validate(createOrderSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user.id; // From auth middleware
+      const orderData = req.body;
+
+      // Business logic in service layer
+      const result = await OrderService.createOrder(userId, orderData);
+
+      res.status(201).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+);
+```
+
+**Service Layer Example:**
+```typescript
+// src/services/order-service.ts
+import { OrderRepository } from '@/repositories/order-repository';
+import { PricingService } from './pricing-service';
+import { WorkflowService } from './workflow-service';
+import { NotificationService } from './notification-service';
+
+export class OrderService {
+  static async createOrder(userId: string, orderData: any) {
+    // 1. Validate vendor availability
+    const vendor = await OrderRepository.getVendorAvailability(
+      orderData.laundry_id,
+      orderData.pickup_datetime
+    );
+
+    if (!vendor.is_available) {
+      throw new Error('Vendor not available at requested time');
+    }
+
+    // 2. Calculate pricing (business logic)
+    const pricing = await PricingService.calculateOrderTotal(orderData.items);
+
+    // 3. Calculate delivery estimate
+    const deliveryEstimate = await WorkflowService.calculateDeliveryDate(
+      orderData.items
+    );
+
+    // 4. Create order in database
+    const order = await OrderRepository.createOrder({
+      resident_id: userId,
+      laundry_id: orderData.laundry_id,
+      society_id: orderData.society_id,
+      estimated_price: pricing.total,
+      expected_delivery_date: deliveryEstimate,
+      pickup_datetime: orderData.pickup_datetime,
+      pickup_address: orderData.pickup_address
+    });
+
+    // 5. Create order items
+    await OrderRepository.createOrderItems(order.order_id, orderData.items);
+
+    // 6. Create service status tracking
+    await WorkflowService.initializeServiceTracking(order.order_id, orderData.items);
+
+    // 7. Trigger notification (async)
+    NotificationService.sendOrderNotification(order.order_id, 'vendor');
+
+    return {
+      order_id: order.order_id,
+      order_number: order.order_number,
+      total: pricing.total,
+      estimated_delivery: deliveryEstimate,
+      service_breakdown: pricing.breakdown
+    };
+  }
+}
+```
+
+**All Business Logic Lives Here:**
+- ✅ Order validation and creation
+- ✅ Pricing calculation
+- ✅ Delivery time estimation
+- ✅ Workflow state management
+- ✅ Payment processing
+- ✅ Notification triggers
+- ✅ Analytics calculation
+- ✅ Report generation
+
+---
+
+### 3.3 Web Admin Dashboard
+
+**Technology:** Next.js 14 (App Router)
+
+**Why Next.js:**
+- ✅ React-based, easy to develop
+- ✅ Server-side rendering for better performance
+- ✅ Perfect Vercel integration (zero-config deployment)
+- ✅ Built-in API routes (for admin-specific operations)
+- ✅ File-based routing
+- ✅ Great developer experience
+
+**Key Dependencies:**
+```json
+{
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "^5.3.0",
+
+    "axios": "^1.6.0",
+    "@tanstack/react-query": "^5.8.0",
+
+    "shadcn/ui": "latest",
+    "tailwindcss": "^3.3.0",
+    "recharts": "^2.10.0",
+
+    "react-hook-form": "^7.48.0",
+    "zod": "^3.22.4",
+    "date-fns": "^2.30.0"
+  }
+}
+```
+
+**Project Structure:**
+```
+admin-web/
+├── app/
+│   ├── (auth)/
+│   │   └── login/
+│   │       └── page.tsx
+│   │
+│   ├── (dashboard)/
+│   │   ├── page.tsx                    # Dashboard home
+│   │   ├── societies/
+│   │   │   ├── page.tsx                # List societies
+│   │   │   ├── [id]/page.tsx           # Society details
+│   │   │   └── new/page.tsx            # Add society
+│   │   │
+│   │   ├── vendors/
+│   │   │   ├── page.tsx                # Pending approvals
+│   │   │   └── [id]/page.tsx
+│   │   │
+│   │   ├── orders/
+│   │   │   └── page.tsx                # Order monitoring
+│   │   │
+│   │   ├── subscriptions/
+│   │   │   ├── page.tsx
+│   │   │   └── invoices/page.tsx
+│   │   │
+│   │   ├── categories/
+│   │   │   └── page.tsx                # Manage categories
+│   │   │
+│   │   └── analytics/
+│   │       └── page.tsx
+│   │
+│   └── layout.tsx
+│
+├── components/
+│   ├── ui/                             # shadcn components
+│   ├── societies/
+│   ├── vendors/
+│   └── orders/
+│
+├── lib/
+│   ├── api-client.ts                   # Axios wrapper (calls backend API)
+│   └── utils.ts
+│
+└── hooks/
+    ├── use-societies.ts
+    ├── use-vendors.ts
+    └── use-orders.ts
+```
+
+**Admin Dashboard calls Backend API:**
+```typescript
+// lib/api-client.ts
+import axios from 'axios';
+
+const apiClient = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL, // Points to Vercel backend
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
+// Add auth token
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+export default apiClient;
+
+// Usage in components:
+export const getSocieties = async () => {
+  const { data } = await apiClient.get('/api/v1/admin/societies');
+  return data;
+};
+```
+
+**No Direct Database Access:** Admin dashboard also goes through Backend API for all operations.
+
+---
+
+## 4. Backend Services (Node.js on Vercel)
+
+### 4.1 Vercel Configuration
+
+**vercel.json:**
+```json
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/**/*.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/v1/(.*)",
+      "dest": "/api/$1"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production",
+    "SUPABASE_URL": "@supabase-url",
+    "SUPABASE_ANON_KEY": "@supabase-anon-key",
+    "SUPABASE_SERVICE_KEY": "@supabase-service-key",
+    "JWT_SECRET": "@jwt-secret",
+    "RAZORPAY_KEY_ID": "@razorpay-key-id",
+    "RAZORPAY_KEY_SECRET": "@razorpay-key-secret"
+  }
+}
+```
+
+### 4.2 API Design Patterns
+
+**RESTful API Structure:**
+
+```
+Base URL: https://api.yourapp.com/api/v1
+
+Authentication:
+POST   /auth/login                 # Send OTP
+POST   /auth/verify-otp            # Verify OTP, get JWT
+POST   /auth/refresh               # Refresh JWT token
+POST   /auth/logout                # Invalidate session
+
+Categories:
+GET    /categories                 # List all categories
+GET    /categories/:id/services    # List services in category
+
+Residents:
+GET    /residents/me               # Get current user
+PATCH  /residents/me               # Update profile
+GET    /residents/me/orders        # Order history
+
+Vendors:
+POST   /vendors/register           # Vendor registration
+GET    /vendors/:id                # Get vendor details
+GET    /vendors/:id/services       # Services offered
+GET    /vendors/:id/rate-card      # Get rate card
+POST   /vendors/:id/rate-card      # Create/update rate card
+GET    /vendors/search             # Search vendors by society/category
+GET    /vendors/me/dashboard       # Vendor dashboard data
+GET    /vendors/me/analytics       # Vendor analytics
+
+Orders:
+POST   /orders                     # Create order
+GET    /orders/:id                 # Get order details
+GET    /orders                     # List orders (filtered)
+PATCH  /orders/:id/status          # Update order status
+PATCH  /orders/:id/service-status  # Update service type status
+POST   /orders/:id/cancel          # Cancel order
+POST   /orders/:id/approve-count   # Approve count change
+
+Payments:
+POST   /payments                   # Record payment
+GET    /payments/:id               # Payment details
+GET    /payments                   # Payment history
+
+Societies:
+GET    /societies                  # List societies
+GET    /societies/:id              # Society details
+POST   /societies                  # Create society (admin)
+PATCH  /societies/:id              # Update society (admin)
+
+Subscriptions:
+GET    /subscriptions              # List subscriptions (admin)
+GET    /subscriptions/:id          # Subscription details
+POST   /subscriptions/:id/invoice  # Generate invoice
+PATCH  /subscriptions/:id/status   # Update status (admin)
+
+Admin:
+GET    /admin/dashboard            # Platform-wide stats
+GET    /admin/vendors/pending      # Pending approvals
+POST   /admin/vendors/:id/approve  # Approve vendor
+POST   /admin/vendors/:id/reject   # Reject vendor
+GET    /admin/orders               # All orders monitoring
+GET    /admin/disputes             # All disputes
+```
+
+**Standard Response Format:**
+```typescript
+// Success
+{
+  "success": true,
+  "data": { ... },
+  "meta": {
+    "timestamp": "2025-11-17T10:30:00Z",
+    "request_id": "uuid"
+  }
+}
+
+// Error
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_INPUT",
+    "message": "Pickup time must be in the future",
+    "details": { ... }
+  },
+  "meta": {
+    "timestamp": "2025-11-17T10:30:00Z",
+    "request_id": "uuid"
+  }
+}
+
+// Paginated
+{
+  "success": true,
+  "data": [...],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 100,
+    "total_pages": 5
+  }
+}
+```
+
+### 4.3 Authentication Flow
+
+**JWT-based with Supabase Auth:**
+
+```typescript
+// Backend: api/v1/auth/login.ts
+export default async (req: Request, res: Response) => {
+  const { phone } = req.body;
+
+  // Send OTP via Supabase Auth
+  const { data, error } = await supabase.auth.signInWithOtp({
+    phone: phone
+  });
+
+  if (error) {
+    return res.status(400).json({
+      success: false,
+      error: { message: 'Failed to send OTP' }
+    });
+  }
+
+  res.json({
+    success: true,
+    data: { message: 'OTP sent successfully' }
+  });
+};
+
+// Backend: api/v1/auth/verify-otp.ts
+export default async (req: Request, res: Response) => {
+  const { phone, otp } = req.body;
+
+  // Verify OTP with Supabase
+  const { data, error } = await supabase.auth.verifyOtp({
+    phone: phone,
+    token: otp,
+    type: 'sms'
+  });
+
+  if (error) {
+    return res.status(401).json({
+      success: false,
+      error: { message: 'Invalid OTP' }
+    });
+  }
+
+  // Return JWT token
+  res.json({
+    success: true,
+    data: {
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      user: data.user
+    }
+  });
+};
+
+// Mobile App: Uses token for all API calls
+dio.options.headers['Authorization'] = 'Bearer $token';
+```
+
+### 4.4 Business Logic Services
+
+**Order Service - Complete Example:**
+
+```typescript
+// src/services/order-service.ts
+import { supabase } from '@/utils/supabase';
+import { PricingService } from './pricing-service';
+import { WorkflowService } from './workflow-service';
+
+export class OrderService {
+  /**
+   * Create new order with full validation and processing
+   */
+  static async createOrder(residentId: string, orderData: CreateOrderDTO) {
+    // 1. Validate vendor exists and is active
+    const vendor = await this.validateVendor(orderData.laundry_id);
+
+    // 2. Validate services are offered by vendor
+    await this.validateVendorServices(
+      orderData.laundry_id,
+      orderData.items.map(i => i.service_id)
+    );
+
+    // 3. Validate society access
+    await this.validateSocietyAccess(residentId, orderData.society_id);
+
+    // 4. Calculate pricing
+    const pricing = await PricingService.calculateOrderTotal(orderData.items);
+
+    // 5. Calculate delivery estimate
+    const serviceIds = [...new Set(orderData.items.map(i => i.service_id))];
+    const deliveryEstimate = await WorkflowService.calculateDeliveryDate(serviceIds);
+
+    // 6. Generate order number
+    const orderNumber = await this.generateOrderNumber();
+
+    // 7. Create order (transaction)
+    const { data: order, error } = await supabase
+      .from('orders')
+      .insert({
+        order_number: orderNumber,
+        resident_id: residentId,
+        laundry_id: orderData.laundry_id,
+        society_id: orderData.society_id,
+        status: 'PICKUP_SCHEDULED',
+        estimated_price: pricing.total,
+        expected_delivery_date: deliveryEstimate,
+        pickup_datetime: orderData.pickup_datetime,
+        pickup_address: orderData.pickup_address,
+        has_multiple_services: serviceIds.length > 1
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error('Failed to create order');
+
+    // 8. Create order items
+    const itemsToInsert = orderData.items.map(item => ({
+      order_id: order.order_id,
+      service_id: item.service_id,
+      item_name: item.item_name,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      total_price: item.quantity * item.unit_price
+    }));
+
+    await supabase.from('order_items').insert(itemsToInsert);
+
+    // 9. Initialize service tracking
+    const serviceGroups = this.groupItemsByService(orderData.items);
+    const statusRecords = serviceGroups.map(group => ({
+      order_id: order.order_id,
+      service_id: group.service_id,
+      item_count: group.total_items,
+      total_amount: group.total_amount,
+      status: 'PICKUP_SCHEDULED',
+      expected_delivery_date: group.expected_delivery
+    }));
+
+    await supabase.from('order_service_status').insert(statusRecords);
+
+    // 10. Return formatted response
+    return {
+      order_id: order.order_id,
+      order_number: order.order_number,
+      status: order.status,
+      total: pricing.total,
+      expected_delivery: deliveryEstimate,
+      service_breakdown: pricing.breakdown
+    };
+  }
+
+  /**
+   * Update order service status
+   */
+  static async updateServiceStatus(
+    orderId: string,
+    serviceId: number,
+    status: string,
+    updatedBy: string
+  ) {
+    // Validate status transition
+    await WorkflowService.validateStatusTransition(orderId, serviceId, status);
+
+    // Update service status
+    const { error } = await supabase
+      .from('order_service_status')
+      .update({
+        status: status,
+        [`${this.getStatusField(status)}_at`]: new Date().toISOString()
+      })
+      .eq('order_id', orderId)
+      .eq('service_id', serviceId);
+
+    if (error) throw new Error('Failed to update status');
+
+    // Check if all services in order are complete
+    const allComplete = await this.checkOrderCompletion(orderId);
+
+    if (allComplete) {
+      await this.completeOrder(orderId);
+    }
+
+    return { success: true };
+  }
+
+  // ... more methods
+}
+```
+
+**Pricing Service:**
+
+```typescript
+// src/services/pricing-service.ts
+export class PricingService {
+  static async calculateOrderTotal(items: OrderItemDTO[]) {
+    let total = 0;
+    const breakdown: any[] = [];
+
+    // Group by service type
+    const grouped = items.reduce((acc, item) => {
+      if (!acc[item.service_id]) acc[item.service_id] = [];
+      acc[item.service_id].push(item);
+      return acc;
+    }, {});
+
+    for (const [serviceId, serviceItems] of Object.entries(grouped)) {
+      const serviceTotal = serviceItems.reduce(
+        (sum, item) => sum + (item.quantity * item.unit_price),
+        0
+      );
+
+      const service = await this.getServiceDetails(parseInt(serviceId));
+
+      breakdown.push({
+        service_id: parseInt(serviceId),
+        service_name: service.service_name,
+        item_count: serviceItems.reduce((sum, i) => sum + i.quantity, 0),
+        subtotal: serviceTotal
+      });
+
+      total += serviceTotal;
+    }
+
+    return {
+      total,
+      breakdown
+    };
+  }
+
+  // Apply discounts, coupons, etc. (future)
+  static async applyDiscounts(total: number, discountCode?: string) {
+    // Business logic for discounts
+    return total;
+  }
+}
+```
+
+---
+
+## 5. Mobile Applications (Flutter)
+
+### 5.1 Flutter Architecture
+
+**Clean Architecture Pattern:**
+
+```dart
+// lib/core/api/api_client.dart
+import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+class ApiClient {
+  final Dio _dio;
+  final FlutterSecureStorage _storage;
+
+  static const String baseUrl = 'https://api.yourapp.com/api/v1';
+
+  ApiClient()
+      : _dio = Dio(BaseOptions(
+          baseUrl: baseUrl,
+          connectTimeout: Duration(seconds: 30),
+          receiveTimeout: Duration(seconds: 30),
+        )),
+        _storage = FlutterSecureStorage() {
+    _dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        // Add auth token
+        final token = await _storage.read(key: 'auth_token');
+        if (token != null) {
+          options.headers['Authorization'] = 'Bearer $token';
+        }
+        return handler.next(options);
+      },
+      onError: (error, handler) async {
+        // Handle 401 unauthorized
+        if (error.response?.statusCode == 401) {
+          // Refresh token or logout
+        }
+        return handler.next(error);
+      },
+    ));
+  }
+
+  // Generic HTTP methods
+  Future<T> get<T>(String path, {Map<String, dynamic>? params}) async {
+    final response = await _dio.get(path, queryParameters: params);
+    return response.data['data'] as T;
+  }
+
+  Future<T> post<T>(String path, {Map<String, dynamic>? data}) async {
+    final response = await _dio.post(path, data: data);
+    return response.data['data'] as T;
+  }
+
+  // ... patch, delete methods
+}
+```
+
+**Repository Pattern (API Calls Only):**
+
+```dart
+// lib/features/orders/data/orders_repository.dart
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../../../core/api/api_client.dart';
+import '../domain/order_model.dart';
+
+part 'orders_repository.g.dart';
+
+@riverpod
+class OrdersRepository extends _$OrdersRepository {
+  @override
+  FutureOr<void> build() {}
+
+  // Create order - calls backend API
+  Future<Order> createOrder(CreateOrderRequest request) async {
+    final apiClient = ref.read(apiClientProvider);
+
+    final response = await apiClient.post<Map<String, dynamic>>(
+      '/orders',
+      data: request.toJson(),
+    );
+
+    return Order.fromJson(response);
+  }
+
+  // Get order details
+  Future<Order> getOrder(String orderId) async {
+    final apiClient = ref.read(apiClientProvider);
+
+    final response = await apiClient.get<Map<String, dynamic>>(
+      '/orders/$orderId',
+    );
+
+    return Order.fromJson(response);
+  }
+
+  // List orders
+  Future<List<Order>> listOrders({
+    int page = 1,
+    int limit = 20,
+    String? status,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+
+    final response = await apiClient.get<List<dynamic>>(
+      '/orders',
+      params: {
+        'page': page,
+        'limit': limit,
+        if (status != null) 'status': status,
+      },
+    );
+
+    return response.map((json) => Order.fromJson(json)).toList();
+  }
+
+  // Update order status
+  Future<void> updateOrderStatus(String orderId, String status) async {
+    final apiClient = ref.read(apiClientProvider);
+
+    await apiClient.patch(
+      '/orders/$orderId/status',
+      data: {'status': status},
+    );
+  }
+}
+```
+
+**UI Layer (Pure Presentation):**
+
+```dart
+// lib/features/orders/presentation/screens/create_order_screen.dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../data/orders_repository.dart';
+import '../../domain/order_model.dart';
+
+class CreateOrderScreen extends ConsumerStatefulWidget {
+  final String vendorId;
+
+  const CreateOrderScreen({required this.vendorId});
+
+  @override
+  ConsumerState<CreateOrderScreen> createState() => _CreateOrderScreenState();
+}
+
+class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
+  final List<OrderItem> _cart = [];
+  DateTime? _pickupTime;
+
+  Future<void> _createOrder() async {
+    if (_cart.isEmpty) {
+      // Show error
+      return;
+    }
+
+    final request = CreateOrderRequest(
+      laundryId: widget.vendorId,
+      items: _cart,
+      pickupDatetime: _pickupTime!.toIso8601String(),
+      pickupAddress: 'A-404', // From user profile
+    );
+
+    try {
+      // Call backend API via repository
+      final order = await ref.read(ordersRepositoryProvider.notifier)
+          .createOrder(request);
+
+      // Navigate to order details
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => OrderDetailsScreen(orderId: order.orderId),
+        ),
+      );
+    } catch (e) {
+      // Show error
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create order: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Create Order')),
+      body: Column(
+        children: [
+          // Cart items list
+          Expanded(
+            child: ListView.builder(
+              itemCount: _cart.length,
+              itemBuilder: (context, index) {
+                final item = _cart[index];
+                return ListTile(
+                  title: Text(item.itemName),
+                  subtitle: Text('${item.quantity} x ₹${item.unitPrice}'),
+                  trailing: Text('₹${item.quantity * item.unitPrice}'),
+                );
+              },
+            ),
+          ),
+
+          // Total
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'Total: ₹${_calculateTotal()}',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+          ),
+
+          // Create order button
+          ElevatedButton(
+            onPressed: _createOrder,
+            child: Text('Create Order'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _calculateTotal() {
+    // Simple UI calculation (backend will validate)
+    return _cart.fold(0, (sum, item) => sum + (item.quantity * item.unitPrice));
+  }
+}
+```
+
+**Key Points:**
+- ✅ Flutter app ONLY renders UI and calls APIs
+- ✅ All validation happens in backend
+- ✅ All calculations happen in backend
+- ✅ Flutter just displays data from API responses
+- ✅ No business logic in Dart code
+
+---
+
+## 6. Web Applications (Next.js)
+
+### 6.1 Admin Dashboard Architecture
+
+**API Calls via React Query:**
+
+```typescript
+// lib/api/societies.ts
+import apiClient from './api-client';
+
+export const getSocieties = async (params?: {
+  page?: number;
+  limit?: number;
+  search?: string;
+}) => {
+  const { data } = await apiClient.get('/api/v1/admin/societies', { params });
+  return data;
+};
+
+export const approveSociety = async (societyId: number) => {
+  const { data } = await apiClient.post(
+    `/api/v1/admin/societies/${societyId}/approve`
+  );
+  return data;
+};
+```
+
+**React Component:**
+
+```typescript
+// app/(dashboard)/societies/page.tsx
+'use client';
+
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { getSocieties, approveSociety } from '@/lib/api/societies';
+import { Button } from '@/components/ui/button';
+
+export default function SocietiesPage() {
+  const { data: societies, isLoading } = useQuery({
+    queryKey: ['societies'],
+    queryFn: () => getSocieties()
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: approveSociety,
+    onSuccess: () => {
+      // Refetch societies
+      queryClient.invalidateQueries(['societies']);
+    }
+  });
+
+  if (isLoading) return <div>Loading...</div>;
+
+  return (
+    <div>
+      <h1>Societies</h1>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {societies?.data.map((society) => (
+            <tr key={society.id}>
+              <td>{society.name}</td>
+              <td>{society.status}</td>
+              <td>
+                {society.status === 'PENDING' && (
+                  <Button
+                    onClick={() => approveMutation.mutate(society.id)}
+                  >
+                    Approve
+                  </Button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+```
+
+**No Direct Database Access:** Next.js app calls Backend API for everything.
+
+---
+
+## 7. Database & Storage (Supabase)
+
+### 7.1 Supabase Services Used
+
+**PostgreSQL Database:**
+- Primary data store
+- All tables, relationships, constraints
+- Row Level Security (RLS) for data isolation
+- Database functions and triggers
+- Full-text search capabilities
+
+**Supabase Auth:**
+- Phone-based OTP authentication
+- JWT token generation
+- Session management
+- User metadata storage
+
+**Supabase Storage:**
+- S3-compatible file storage
+- Image uploads (vendor photos, pickup photos)
+- Document storage (invoices, reports)
+- CDN for fast delivery
+
+**Supabase Realtime:**
+- Live order updates
+- Real-time notifications
+- Pub/Sub for events
+
+**Access Pattern:**
+- Backend API uses Supabase service key (full access)
+- Mobile apps DO NOT access Supabase directly
+- All database operations through Backend API
+
+### 7.2 Database Connection
+
+**Backend uses Supabase JS Client:**
+
+```typescript
+// src/utils/supabase.ts
+import { createClient } from '@supabase/supabase-js';
+
+// Service key for backend (full access)
+export const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!, // NOT anon key
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+);
+
+// Usage in repositories
+export class OrderRepository {
+  static async createOrder(orderData: any) {
+    const { data, error } = await supabase
+      .from('orders')
+      .insert(orderData)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+}
+```
+
+**RLS Policies (Defense in Depth):**
+
+Even though backend uses service key, RLS provides additional security:
+
+```sql
+-- Residents can only see their own orders
+CREATE POLICY "Residents view own orders"
+ON orders FOR SELECT
+USING (auth.uid() = resident_id);
+
+-- Vendors can only see orders assigned to them
+CREATE POLICY "Vendors view assigned orders"
+ON orders FOR SELECT
+USING (auth.uid() = laundry_id);
+
+-- Admins can see all orders (via service key bypass)
+```
+
+### 7.3 File Upload Flow
+
+```
+1. Mobile App requests upload URL
+   └─> POST /api/v1/uploads/request
+       Backend generates signed URL from Supabase Storage
+
+2. Mobile App uploads file directly to Supabase Storage
+   └─> PUT https://supabase.co/storage/v1/object/...
+       Uses signed URL (no auth needed)
+
+3. Mobile App sends file URL to backend
+   └─> POST /api/v1/orders/:id/photos
+       Backend saves URL reference in database
+```
+
+---
+
+## 8. Edge Functions & Webhooks
+
+### 8.1 Supabase Edge Functions
+
+**Purpose:**
+- Async background tasks
+- Webhook handling
+- Scheduled jobs (cron)
+- Third-party integrations
+
+**Technology:** Deno (TypeScript)
+
+**Example: Send Push Notification**
+
+```typescript
+// supabase/functions/send-notification/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+serve(async (req) => {
+  try {
+    const { user_id, title, body, data } = await req.json();
+
+    // Get user's FCM token from database
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+
+    const { data: user } = await supabase
+      .from('users')
+      .select('fcm_token')
+      .eq('user_id', user_id)
+      .single();
+
+    if (!user?.fcm_token) {
+      return new Response('No FCM token', { status: 404 });
+    }
+
+    // Send via Firebase Cloud Messaging
+    const fcmResponse = await fetch(
+      'https://fcm.googleapis.com/fcm/send',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `key=${Deno.env.get('FCM_SERVER_KEY')}`
+        },
+        body: JSON.stringify({
+          to: user.fcm_token,
+          notification: { title, body },
+          data: data
+        })
+      }
+    );
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+});
+```
+
+**Triggered from Backend:**
+
+```typescript
+// Backend: src/services/notification-service.ts
+export class NotificationService {
+  static async sendOrderNotification(orderId: string, recipientType: string) {
+    // Call Supabase Edge Function
+    const { data, error } = await supabase.functions.invoke(
+      'send-notification',
+      {
+        body: {
+          user_id: userId,
+          title: 'New Order',
+          body: `You have a new order #${orderNumber}`,
+          data: { order_id: orderId }
+        }
+      }
+    );
+
+    if (error) console.error('Notification failed:', error);
+  }
+}
+```
+
+### 8.2 Cron Jobs (Scheduled Tasks)
+
+**Example: Monthly Invoice Generation**
+
+```typescript
+// supabase/functions/generate-monthly-invoices/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+serve(async (req) => {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+
+  // Get all active subscriptions
+  const { data: subscriptions } = await supabase
+    .from('society_subscriptions')
+    .select('*')
+    .eq('status', 'ACTIVE')
+    .lte('next_billing_date', new Date().toISOString());
+
+  for (const subscription of subscriptions) {
+    // Generate invoice
+    await supabase.from('subscription_invoices').insert({
+      subscription_id: subscription.subscription_id,
+      society_id: subscription.society_id,
+      amount: subscription.monthly_fee,
+      due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      status: 'PENDING'
+    });
+
+    // Update next billing date
+    await supabase
+      .from('society_subscriptions')
+      .update({
+        next_billing_date: new Date(
+          subscription.next_billing_date.getTime() + 30 * 24 * 60 * 60 * 1000
+        )
+      })
+      .eq('subscription_id', subscription.subscription_id);
+  }
+
+  return new Response(
+    JSON.stringify({ invoices_generated: subscriptions.length }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+});
+```
+
+**Configure Cron Schedule in Supabase Dashboard:**
+```
+Function: generate-monthly-invoices
+Schedule: 0 2 1 * * (2 AM on 1st of every month)
+```
+
+### 8.3 Webhook Handlers
+
+**Example: Razorpay Payment Webhook**
+
+```typescript
+// supabase/functions/razorpay-webhook/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createHmac } from 'https://deno.land/std@0.168.0/node/crypto.ts';
+
+serve(async (req) => {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+
+  // Verify webhook signature
+  const signature = req.headers.get('x-razorpay-signature');
+  const body = await req.text();
+
+  const expectedSignature = createHmac('sha256', Deno.env.get('RAZORPAY_WEBHOOK_SECRET')!)
+    .update(body)
+    .digest('hex');
+
+  if (signature !== expectedSignature) {
+    return new Response('Invalid signature', { status: 401 });
+  }
+
+  const payload = JSON.parse(body);
+  const event = payload.event;
+
+  // Handle payment success
+  if (event === 'payment.captured') {
+    const paymentId = payload.payload.payment.entity.id;
+    const amount = payload.payload.payment.entity.amount / 100; // Paise to rupees
+
+    // Update payment record
+    await supabase
+      .from('payments')
+      .update({
+        status: 'COMPLETED',
+        razorpay_payment_id: paymentId,
+        paid_at: new Date().toISOString()
+      })
+      .eq('razorpay_order_id', payload.payload.payment.entity.order_id);
+
+    // Update order status
+    // ... additional logic
+  }
+
+  return new Response(JSON.stringify({ received: true }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+});
+```
+
+**Register webhook URL with Razorpay:**
+```
+https://your-project.supabase.co/functions/v1/razorpay-webhook
+```
+
+---
+
+## 9. Third-Party Integrations
+
+### 9.1 Razorpay (Payments)
+
+**Backend Integration:**
+
+```typescript
+// src/services/payment-service.ts
+import Razorpay from 'razorpay';
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID!,
+  key_secret: process.env.RAZORPAY_KEY_SECRET!
+});
+
+export class PaymentService {
+  static async createPaymentLink(orderId: string, amount: number) {
+    const order = await razorpay.orders.create({
+      amount: amount * 100, // Convert to paise
+      currency: 'INR',
+      receipt: orderId,
+      notes: {
+        order_id: orderId
+      }
+    });
+
+    return {
+      razorpay_order_id: order.id,
+      amount: order.amount,
+      currency: order.currency
+    };
+  }
+
+  static async verifyPayment(
+    razorpayOrderId: string,
+    razorpayPaymentId: string,
+    razorpaySignature: string
+  ) {
+    const text = `${razorpayOrderId}|${razorpayPaymentId}`;
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
+      .update(text)
+      .digest('hex');
+
+    return expectedSignature === razorpaySignature;
+  }
+}
+```
+
+**Mobile App Integration:**
+
+```dart
+// Flutter: Razorpay checkout
+import 'package:razorpay_flutter/razorpay_flutter.dart';
+
+Future<void> initiatePayment(String orderId, double amount) async {
+  // 1. Get Razorpay order ID from backend
+  final response = await apiClient.post('/payments/create', data: {
+    'order_id': orderId,
+    'amount': amount
+  });
+
+  final razorpayOrderId = response['razorpay_order_id'];
+
+  // 2. Open Razorpay checkout
+  final razorpay = Razorpay();
+
+  razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, (PaymentSuccessResponse response) {
+    // 3. Verify payment with backend
+    apiClient.post('/payments/verify', data: {
+      'razorpay_order_id': response.orderId,
+      'razorpay_payment_id': response.paymentId,
+      'razorpay_signature': response.signature
+    });
+  });
+
+  razorpay.open({
+    'key': 'rzp_test_xxxxx', // From env
+    'amount': (amount * 100).toInt(),
+    'name': 'Laundry App',
+    'order_id': razorpayOrderId,
+    'prefill': {
+      'contact': userPhone,
+      'email': userEmail
+    }
+  });
+}
+```
+
+### 9.2 Firebase Cloud Messaging (Push Notifications)
+
+**Backend: Trigger Notification**
+
+```typescript
+// Backend calls Supabase Edge Function
+await supabase.functions.invoke('send-notification', {
+  body: {
+    user_id: vendorId,
+    title: 'New Order',
+    body: 'You have a new order',
+    data: { order_id: orderId, type: 'new_order' }
+  }
+});
+```
+
+**Mobile App: Receive Notification**
+
+```dart
+// Flutter: Initialize FCM
+import 'package:firebase_messaging/firebase_messaging.dart';
+
+Future<void> initializeNotifications() async {
+  final messaging = FirebaseMessaging.instance;
+
+  // Request permission
+  await messaging.requestPermission();
+
+  // Get FCM token
+  final token = await messaging.getToken();
+
+  // Send token to backend
+  await apiClient.post('/users/me/fcm-token', data: {'token': token});
+
+  // Listen for messages
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    // Show in-app notification
+    showNotification(
+      title: message.notification?.title ?? '',
+      body: message.notification?.body ?? ''
+    );
+  });
+
+  // Handle notification tap
+  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    // Navigate to relevant screen
+    final orderId = message.data['order_id'];
+    navigateToOrder(orderId);
+  });
+}
+```
+
+### 9.3 SMS (Twilio / MSG91)
+
+**Edge Function: Send SMS**
+
+```typescript
+// supabase/functions/send-sms/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+
+serve(async (req) => {
+  const { phone, message } = await req.json();
+
+  // Using MSG91 (Indian SMS provider)
+  const response = await fetch('https://api.msg91.com/api/v5/flow/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'authkey': Deno.env.get('MSG91_AUTH_KEY')!
+    },
+    body: JSON.stringify({
+      flow_id: Deno.env.get('MSG91_FLOW_ID'),
+      sender: Deno.env.get('MSG91_SENDER_ID'),
+      mobiles: phone,
+      message: message
+    })
+  });
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+});
+```
+
+---
+
+## 10. Deployment Strategy
+
+### 10.1 Deployment Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      PRODUCTION                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
+│  │   Backend    │  │   Admin Web  │  │  Mobile Apps    │   │
+│  │   Node.js    │  │   Next.js    │  │    Flutter      │   │
+│  │              │  │              │  │                 │   │
+│  │   Vercel     │  │   Vercel     │  │  App Store      │   │
+│  │  Production  │  │  Production  │  │  Play Store     │   │
+│  └──────────────┘  └──────────────┘  └─────────────────┘   │
+│         │                 │                                  │
+│         └─────────────────┴──────────────────┐              │
+│                                               │              │
+│                                               ▼              │
+│                                    ┌─────────────────────┐  │
+│                                    │    Supabase         │  │
+│                                    │    Production       │  │
+│                                    │                     │  │
+│                                    │  • PostgreSQL       │  │
+│                                    │  • Edge Functions   │  │
+│                                    │  • Storage          │  │
+│                                    │  • Auth             │  │
+│                                    └─────────────────────┘  │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                      STAGING                                 │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────────┐  ┌──────────────┐                         │
+│  │   Backend    │  │   Admin Web  │                         │
+│  │   Vercel     │  │   Vercel     │                         │
+│  │   Preview    │  │   Preview    │                         │
+│  └──────────────┘  └──────────────┘                         │
+│         │                 │                                  │
+│         └─────────────────┴──────────────────┐              │
+│                                               ▼              │
+│                                    ┌─────────────────────┐  │
+│                                    │    Supabase         │  │
+│                                    │    Staging          │  │
+│                                    └─────────────────────┘  │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 10.2 Backend API Deployment (Vercel)
+
+**Setup:**
+
+1. **Connect GitHub repository to Vercel**
+2. **Configure environment variables** in Vercel dashboard:
+   ```
+   SUPABASE_URL=https://xxx.supabase.co
+   SUPABASE_SERVICE_KEY=xxx
+   JWT_SECRET=xxx
+   RAZORPAY_KEY_ID=xxx
+   RAZORPAY_KEY_SECRET=xxx
+   FCM_SERVER_KEY=xxx
+   ```
+
+3. **vercel.json configuration:**
+   ```json
+   {
+     "version": 2,
+     "builds": [
+       {
+         "src": "api/**/*.ts",
+         "use": "@vercel/node"
+       }
+     ],
+     "routes": [
+       {
+         "src": "/api/v1/(.*)",
+         "dest": "/api/$1"
+       }
+     ]
+   }
+   ```
+
+4. **Deploy:**
+   ```bash
+   # Automatic on git push to main
+   git push origin main
+
+   # Or manual
+   vercel --prod
+   ```
+
+**URL Structure:**
+```
+Production: https://api.yourapp.com/api/v1/*
+Staging: https://api-staging.yourapp.com/api/v1/*
+Preview: https://api-pr-123.yourapp.vercel.app/api/v1/*
+```
+
+### 10.3 Admin Web Deployment (Vercel)
+
+**Setup:**
+
+1. **Connect GitHub repository**
+2. **Configure build settings:**
+   ```
+   Framework: Next.js
+   Build Command: npm run build
+   Output Directory: .next
+   Install Command: npm install
+   ```
+
+3. **Environment variables:**
+   ```
+   NEXT_PUBLIC_API_URL=https://api.yourapp.com
+   ```
+
+4. **Deploy:** Automatic on push to main
+
+**URL:**
+```
+Production: https://admin.yourapp.com
+```
+
+### 10.4 Mobile App Deployment (Flutter)
+
+**iOS (App Store):**
+
+```bash
+# 1. Build release version
+flutter build ios --release
+
+# 2. Open Xcode
+open ios/Runner.xcworkspace
+
+# 3. Archive and upload to App Store Connect
+
+# 4. Submit for review
+```
+
+**Android (Play Store):**
+
+```bash
+# 1. Build release APK/AAB
+flutter build appbundle --release
+
+# 2. Sign with release keystore
+# (configured in android/app/build.gradle)
+
+# 3. Upload to Play Console
+
+# 4. Submit for review
+```
+
+**Environment Configuration:**
+
+```dart
+// lib/config/env.dart
+class Environment {
+  static const String apiUrl = String.fromEnvironment(
+    'API_URL',
+    defaultValue: 'https://api.yourapp.com/api/v1'
+  );
+}
+
+// Build with environment
+flutter build apk --dart-define=API_URL=https://api.yourapp.com/api/v1
+```
+
+### 10.5 Supabase Setup
+
+**Production Project:**
+
+1. **Create project** on supabase.com
+2. **Run migrations:**
+   ```bash
+   supabase db push --linked
+   ```
+
+3. **Deploy edge functions:**
+   ```bash
+   supabase functions deploy send-notification
+   supabase functions deploy razorpay-webhook
+   supabase functions deploy generate-monthly-invoices
+   ```
+
+4. **Configure cron jobs** in Supabase dashboard
+
+5. **Set up storage buckets:**
+   ```
+   - order-photos (public)
+   - vendor-documents (private)
+   - invoices (private)
+   ```
+
+### 10.6 CI/CD Pipeline
+
+**GitHub Actions Workflow:**
+
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - run: npm install
+      - run: npm test
+      - uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+
+  deploy-admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - run: cd admin-web && npm install
+      - run: cd admin-web && npm run build
+      - uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_ADMIN_PROJECT_ID }}
+
+  deploy-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: supabase/setup-cli@v1
+      - run: supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+```
+
+---
+
+## 11. Development Workflow
+
+### 11.1 Local Development Setup
+
+**Prerequisites:**
+```bash
+# Install Node.js 20 LTS
+nvm install 20
+nvm use 20
+
+# Install Flutter
+# Download from flutter.dev
+
+# Install Supabase CLI
+brew install supabase/tap/supabase
+```
+
+**Setup Steps:**
+
+```bash
+# 1. Clone repository
+git clone https://github.com/yourorg/laundry-app.git
+cd laundry-app
+
+# 2. Install backend dependencies
+npm install
+
+# 3. Setup environment variables
+cp .env.example .env
+# Edit .env with your values
+
+# 4. Start Supabase locally
+supabase start
+
+# 5. Run database migrations
+supabase db reset
+
+# 6. Start backend dev server
+npm run dev
+# Backend runs on http://localhost:3000
+
+# 7. Start admin web
+cd admin-web
+npm install
+npm run dev
+# Admin runs on http://localhost:3001
+
+# 8. Run Flutter app
+cd ../resident-app
+flutter pub get
+flutter run
+```
+
+### 11.2 Development URLs
+
+```
+Backend API: http://localhost:3000/api/v1
+Admin Web: http://localhost:3001
+Supabase Studio: http://localhost:54323
+PostgreSQL: postgresql://postgres:postgres@localhost:54322/postgres
+```
+
+### 11.3 Testing Strategy
+
+**Backend API Tests:**
+
+```typescript
+// tests/orders/create-order.test.ts
+import { describe, it, expect } from 'vitest';
+import request from 'supertest';
+import app from '@/api/index';
+
+describe('POST /api/v1/orders', () => {
+  it('creates order successfully', async () => {
+    const response = await request(app)
+      .post('/api/v1/orders')
+      .set('Authorization', `Bearer ${testToken}`)
+      .send({
+        laundry_id: 'test-vendor-id',
+        items: [
+          {
+            service_id: 1,
+            item_name: 'Shirt',
+            quantity: 5,
+            unit_price: 10
+          }
+        ],
+        pickup_datetime: '2025-11-18T10:00:00Z',
+        pickup_address: 'A-404'
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toHaveProperty('order_id');
+  });
+
+  it('validates required fields', async () => {
+    const response = await request(app)
+      .post('/api/v1/orders')
+      .set('Authorization', `Bearer ${testToken}`)
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(response.body.success).toBe(false);
+  });
+});
+```
+
+**Flutter Widget Tests:**
+
+```dart
+// test/widgets/order_card_test.dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:resident_app/features/orders/presentation/widgets/order_card.dart';
+
+void main() {
+  testWidgets('OrderCard displays order details', (tester) async {
+    final order = Order(
+      orderId: '123',
+      orderNumber: 'ORD001',
+      status: 'PICKUP_SCHEDULED',
+      total: 350,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: OrderCard(order: order),
+        ),
+      ),
+    );
+
+    expect(find.text('ORD001'), findsOneWidget);
+    expect(find.text('₹350'), findsOneWidget);
+  });
+}
+```
+
+**Run Tests:**
+
+```bash
+# Backend tests
+npm test
+
+# Flutter tests
+flutter test
+```
+
+---
+
+## 12. Infrastructure Costs
+
+### 12.1 Monthly Cost Breakdown
+
+**Vercel (Backend + Admin Web):**
+```
+Plan: Pro ($20/month)
+Includes:
+  - Unlimited deployments
+  - 100GB bandwidth
+  - Serverless function execution
+  - Custom domains
+  - Team collaboration
+
+Expected usage:
+  - Backend API: ~50GB bandwidth
+  - Admin Web: ~20GB bandwidth
+  - Well within limits
+
+Cost: $20/month
+```
+
+**Supabase:**
+```
+Plan: Pro ($25/month)
+Includes:
+  - 8GB database
+  - 100GB bandwidth
+  - 100GB file storage
+  - 500K edge function invocations
+  - 50GB egress
+  - Daily backups
+
+Expected usage (100 societies):
+  - Database: ~2GB
+  - Storage: ~20GB (photos)
+  - Bandwidth: ~30GB
+  - Edge functions: ~100K/month
+
+Cost: $25/month
+```
+
+**Razorpay:**
+```
+Transaction fee: 2% per transaction
+Payment gateway: Free to integrate
+
+Expected usage:
+  - 0 transactions (residents pay vendors directly)
+  - Only used for society subscription payments
+
+Cost: Minimal (~₹500/month or $6)
+```
+
+**Firebase Cloud Messaging:**
+```
+Free tier: Unlimited notifications
+
+Cost: $0
+```
+
+**SMS (MSG91):**
+```
+Cost per SMS: ₹0.20 ($0.0024)
+OTPs per month: ~2000 (100 societies × 20 users × 1 OTP/month)
+
+Cost: ₹400/month ($5)
+```
+
+**Domain & SSL:**
+```
+Domain: $12/year
+SSL: Free (Vercel provides)
+
+Cost: $1/month
+```
+
+**Total Monthly Cost:**
+```
+Vercel: $20
+Supabase: $25
+Razorpay: $6
+FCM: $0
+SMS: $5
+Domain: $1
+-----------
+Total: $57/month (~₹4,750/month)
+```
+
+**Cost at Scale (500 societies):**
+```
+Vercel: $20 (same)
+Supabase: $50 (Pro+ for more database/bandwidth)
+Razorpay: $30 (more subscription payments)
+SMS: $20 (more OTPs)
+Domain: $1
+-----------
+Total: $121/month (~₹10,000/month)
+```
+
+**Revenue vs Cost:**
+```
+50 societies @ ₹10k avg = ₹5L/month revenue
+Infrastructure cost: ₹5k/month
+Profit margin: 99%
+
+500 societies @ ₹10k avg = ₹50L/month revenue
+Infrastructure cost: ₹10k/month
+Profit margin: 98%
+```
+
+### 12.2 Cost Optimization
+
+**Strategies:**
+1. **Vercel:** Use edge caching for static content
+2. **Supabase:** Optimize queries, use connection pooling
+3. **Storage:** Compress images before upload, use CDN
+4. **SMS:** Implement rate limiting on OTP requests
+5. **Edge Functions:** Use cron jobs instead of realtime triggers where possible
+
+---
+
+## 13. Security & Performance
+
+### 13.1 Security Measures
+
+**API Security:**
+
+```typescript
+// Rate limiting
+import rateLimit from 'express-rate-limit';
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per window
+  message: 'Too many requests, please try again later'
+});
+
+app.use('/api/', limiter);
+
+// Helmet for security headers
+import helmet from 'helmet';
+app.use(helmet());
+
+// CORS configuration
+import cors from 'cors';
+app.use(cors({
+  origin: [
+    'https://admin.yourapp.com',
+    'https://yourapp.com'
+  ],
+  credentials: true
+}));
+
+// Input validation with Zod
+import { z } from 'zod';
+
+const createOrderSchema = z.object({
+  laundry_id: z.string().uuid(),
+  items: z.array(z.object({
+    service_id: z.number().int().positive(),
+    quantity: z.number().int().positive().max(100)
+  })).min(1).max(50)
+});
+```
+
+**Database Security:**
+
+```sql
+-- Row Level Security policies
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Residents view own orders"
+ON orders FOR SELECT
+USING (auth.uid() = resident_id);
+
+-- Encrypted columns for sensitive data
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+ALTER TABLE users
+ADD COLUMN phone_encrypted BYTEA;
+```
+
+**Mobile App Security:**
+
+```dart
+// Secure storage for tokens
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+final storage = FlutterSecureStorage();
+
+// Store token
+await storage.write(key: 'auth_token', value: token);
+
+// Retrieve token
+final token = await storage.read(key: 'auth_token');
+
+// SSL pinning (production)
+import 'package:dio/dio.dart';
+
+final dio = Dio();
+dio.httpClientAdapter = IOHttpClientAdapter(
+  onHttpClientCreate: (client) {
+    client.badCertificateCallback = (cert, host, port) {
+      // Validate certificate
+      return validateCertificate(cert);
+    };
+    return client;
+  }
+);
+```
+
+### 13.2 Performance Optimization
+
+**Backend API:**
+
+```typescript
+// Response compression
+import compression from 'compression';
+app.use(compression());
+
+// Database connection pooling
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(url, key, {
+  db: {
+    schema: 'public'
+  },
+  global: {
+    headers: {
+      'x-connection-pool': 'true'
+    }
+  }
+});
+
+// Caching with Redis (future)
+import Redis from 'ioredis';
+const redis = new Redis(process.env.REDIS_URL);
+
+// Cache vendor details
+const getCachedVendor = async (vendorId: string) => {
+  const cached = await redis.get(`vendor:${vendorId}`);
+  if (cached) return JSON.parse(cached);
+
+  const vendor = await fetchVendorFromDB(vendorId);
+  await redis.setex(`vendor:${vendorId}`, 3600, JSON.stringify(vendor));
+  return vendor;
+};
+```
+
+**Database Optimization:**
+
+```sql
+-- Indexes for common queries
+CREATE INDEX idx_orders_resident ON orders(resident_id, created_at DESC);
+CREATE INDEX idx_orders_vendor ON orders(laundry_id, status, created_at DESC);
+CREATE INDEX idx_orders_society ON orders(society_id, created_at DESC);
+
+-- Materialized view for analytics
+CREATE MATERIALIZED VIEW vendor_analytics AS
+SELECT
+  laundry_id,
+  COUNT(*) as total_orders,
+  SUM(final_price) as total_revenue,
+  AVG(rating) as avg_rating
+FROM orders
+GROUP BY laundry_id;
+
+-- Refresh periodically
+REFRESH MATERIALIZED VIEW vendor_analytics;
+```
+
+**Flutter App Performance:**
+
+```dart
+// Image caching
+import 'package:cached_network_image/cached_network_image.dart';
+
+CachedNetworkImage(
+  imageUrl: vendor.photoUrl,
+  placeholder: (context, url) => CircularProgressIndicator(),
+  errorWidget: (context, url, error) => Icon(Icons.error),
+  cacheManager: CacheManager(
+    Config(
+      'vendor_images',
+      stalePeriod: Duration(days: 7),
+      maxNrOfCacheObjects: 100,
+    ),
+  ),
+);
+
+// Lazy loading lists
+ListView.builder(
+  itemCount: orders.length,
+  itemBuilder: (context, index) {
+    return OrderCard(order: orders[index]);
+  },
+);
+```
+
+---
+
+## Summary
+
+### Technology Stack Overview
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Mobile** | Flutter | iOS + Android apps (UI only) |
+| **Backend** | Node.js + Express | All business logic |
+| **Admin Web** | Next.js 14 | Admin dashboard |
+| **Database** | PostgreSQL (Supabase) | Data storage |
+| **Edge Functions** | Deno (Supabase) | Webhooks, crons |
+| **Storage** | Supabase Storage | File uploads |
+| **Auth** | Supabase Auth | User authentication |
+| **Hosting** | Vercel | Backend + Web |
+| **Payments** | Razorpay | Payment gateway |
+| **Notifications** | Firebase FCM | Push notifications |
+
+### Key Architecture Decisions
+
+✅ **Clean separation:** Mobile apps are thin clients, all logic in backend
+✅ **API-first:** Single backend API serves mobile and web
+✅ **Serverless:** Zero server management, auto-scaling
+✅ **Type-safe:** TypeScript everywhere
+✅ **Cost-effective:** ~$60/month for 100 societies
+✅ **Scalable:** Can handle 1000+ societies without architecture changes
+
+### Deployment Flow
+
+```
+Code Push → GitHub
+    ↓
+GitHub Actions CI/CD
+    ↓
+├─→ Vercel (Backend API)
+├─→ Vercel (Admin Web)
+├─→ Supabase (Edge Functions)
+└─→ App Store / Play Store (Mobile Apps)
+```
+
+**Zero downtime deployments. Automatic rollbacks on failure.**
+
+---
+
+**End of Document**
