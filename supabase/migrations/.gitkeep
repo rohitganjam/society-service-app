@@ -1,0 +1,2 @@
+# Database migration files will be placed here
+# Run: supabase migration new <migration_name>
