@@ -1,9 +1,9 @@
 # Database Schema Documentation
 
 **Version:** 3.0
-**Date:** November 17, 2025
+**Date:** November 20, 2025
 **Database:** PostgreSQL 15 (Supabase)
-**Architecture:** Multi-category service platform with hierarchical structure and custom workflows
+**Architecture:** Multi-category service platform with hierarchical structure, custom workflows, and multi-society support
 
 ---
 
@@ -41,6 +41,9 @@
 - ✅ Mixed-service orders (multiple service types per order)
 - ✅ **Custom workflow configuration per service type**
 - ✅ **Workflow step tracking for each order service**
+- ✅ **Multi-society support (one user, multiple residences)**
+- ✅ **Independent house support (apartments + layouts)**
+- ✅ **Society roster for instant verification**
 - ✅ Society subscription billing
 - ✅ Multi-tenancy with data isolation
 - ✅ Audit trails for critical operations
@@ -83,7 +86,8 @@ CREATE EXTENSION IF NOT EXISTS "btree_gin";      -- GIN indexes
 ### 2.2 Data Types
 
 **IDs:**
-- Primary keys: `SERIAL` for auto-increment integers, `UUID` for distributed records
+- Primary keys: `INTEGER GENERATED ALWAYS AS IDENTITY` for auto-increment integers (SQL standard, PostgreSQL 10+), `UUID` for distributed records
+- Legacy: `SERIAL` is shorthand but `GENERATED ALWAYS AS IDENTITY` is preferred for better control
 - Foreign keys: Match referenced column type
 
 **Text:**
@@ -117,6 +121,13 @@ deleted_at TIMESTAMP                        -- Soft delete
 ---
 
 ## 3. Entity Relationship Diagram
+
+**Key Updates in Version 3.0:**
+- ✅ Multi-society support: One user can have residences in multiple societies
+- ✅ Independent house support: Societies can be APARTMENT or LAYOUT type
+- ✅ Society roster table: Pre-approved residents for instant verification
+- ✅ Residents table redesigned: Allows multiple residences per user with is_primary and is_active flags
+- ✅ Support for multiple households per house: Different floors in same house number
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -162,51 +173,88 @@ deleted_at TIMESTAMP                        -- Soft delete
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         USER MANAGEMENT                                  │
+│                         USER MANAGEMENT & MULTI-SOCIETY                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
-│  ┌──────────────┐         ┌──────────────┐         ┌──────────────┐   │
-│  │   users      │         │  residents   │         │   vendors    │   │
-│  │ ─────────────│         │ ─────────────│         │ ─────────────│   │
-│  │ • user_id (PK)    ∞   │ • resident_id│    ∞   │ • vendor_id  │   │
-│  │ • phone      │◄───1────┤   (PK, FK)   │◄───1────┤   (PK, FK)   │   │
-│  │ • user_type  │         │ • flat_no    │         │ • business_  │   │
-│  │ • is_verified│         └──────────────┘         │   name       │   │
-│  └──────────────┘                                   │ • store_addr │   │
-│         │                                           └──────────────┘   │
-│         │                                                    │          │
-│         │                                                    │          │
-│         │                                                    ▼          │
-│         │                                           ┌──────────────┐   │
-│         │                                           │ vendor_      │   │
-│         │                                           │  services    │   │
-│         │                                           │ ─────────────│   │
-│         │                                           │ • vendor_id  │   │
-│         │                                           │ • service_id │   │
-│         │                                           │   (FK)       │   │
-│         │                                           └──────────────┘   │
-│         │                                                    │          │
-│         │                                                    │          │
-│         ▼                                                    ▼          │
-│  ┌──────────────┐                                  ┌──────────────┐   │
-│  │  societies   │                                  │ rate_cards   │   │
-│  │ ─────────────│                                  │ ─────────────│   │
-│  │ • society_id │    1                        ∞   │ • rate_card_id   │
-│  │   (PK)       │◄─────────────────────────────────┤ • vendor_id  │   │
-│  │ • name       │                                  │ • society_id │   │
-│  │ • address    │                                  └──────────────┘   │
-│  └──────────────┘                                           │          │
-│                                                              │          │
-│                                                              ▼          │
-│                                                     ┌──────────────┐   │
-│                                                     │ rate_card_   │   │
-│                                                     │   items      │   │
-│                                                     │ ─────────────│   │
-│                                                     │ • item_id    │   │
-│                                                     │ • service_id │   │
-│                                                     │ • item_name  │   │
-│                                                     │ • price      │   │
-│                                                     └──────────────┘   │
+│  ┌──────────────┐                              ┌──────────────┐         │
+│  │   users      │ 1                      ∞     │  residents   │         │
+│  │ ─────────────│◄─────────────────────────────┤ ─────────────│         │
+│  │ • user_id (PK)                              │ • resident_id│         │
+│  │ • phone      │                              │   (PK)       │         │
+│  │ • user_type  │                              │ • user_id(FK)│         │
+│  │ • is_verified│                              │ • society_id │         │
+│  └──────────────┘                              │   (FK)       │         │
+│         │                                       │ • unit_type  │         │
+│         │                                       │ • flat_number│         │
+│         │                                       │ • house_num  │         │
+│         │                                       │ • is_primary │         │
+│         │                                       │ • is_active  │         │
+│         │                                       │ • verification         │
+│         │ 1                                     │   _status    │         │
+│         │                                       └──────┬───────┘         │
+│         │                                              │                 │
+│         │                                              │ ∞               │
+│         │                                              │                 │
+│         ▼ ∞                                            │                 │
+│  ┌──────────────┐                                     │                 │
+│  │   vendors    │                                     │                 │
+│  │ ─────────────│                                     │                 │
+│  │ • vendor_id  │                                     │                 │
+│  │   (PK, FK)   │                                     │                 │
+│  │ • business_  │                                     │                 │
+│  │   name       │                                     │                 │
+│  │ • store_addr │                                     │                 │
+│  └──────┬───────┘                                     │                 │
+│         │                                              │                 │
+│         │ 1                                            │                 │
+│         │                                              │                 │
+│         ▼ ∞                                            │                 │
+│  ┌──────────────┐                                     │                 │
+│  │ vendor_      │                                     │                 │
+│  │  services    │                                     │                 │
+│  │ ─────────────│                                     │                 │
+│  │ • vendor_id  │                                     │                 │
+│  │ • service_id │                                     │                 │
+│  │   (FK)       │                                     │                 │
+│  │ • turnaround │                                     │                 │
+│  └──────┬───────┘                                     │                 │
+│         │                                              │                 │
+│         │                                              │                 │
+│         │                                              │ 1               │
+│         │                                              │                 │
+│         ▼                                              ▼                 │
+│  ┌──────────────┐                              ┌──────────────┐         │
+│  │ rate_cards   │                              │  societies   │         │
+│  │ ─────────────│            1            ∞   │ ─────────────│         │
+│  │ • rate_card_id  ◄────────────────────────────┤ • society_id │         │
+│  │ • vendor_id  │                              │   (PK)       │         │
+│  │ • society_id │                              │ • name       │         │
+│  │   (FK)       │                              │ • society_   │         │
+│  │ • is_published                              │   type       │         │
+│  └──────┬───────┘                              │ • total_flats│         │
+│         │                                       │ • total_     │         │
+│         │ 1                                     │   houses     │         │
+│         │                                       └──────┬───────┘         │
+│         ▼ ∞                                            │                 │
+│  ┌──────────────┐                                     │                 │
+│  │ rate_card_   │                                     │ 1               │
+│  │   items      │                                     │                 │
+│  │ ─────────────│                                     ▼ ∞               │
+│  │ • item_id    │                              ┌──────────────┐         │
+│  │ • rate_card_id                              │ society_     │         │
+│  │   (FK)       │                              │  roster      │         │
+│  │ • service_id │                              │ ─────────────│         │
+│  │ • item_name  │                              │ • roster_id  │         │
+│  │ • price      │                              │ • society_id │         │
+│  └──────────────┘                              │   (FK)       │         │
+│                                                  │ • phone      │         │
+│                                                  │ • unit_type  │         │
+│  Note: residents table supports multi-society:  │ • flat_number│         │
+│  - One user can have multiple resident records  │ • house_num  │         │
+│  - Only one is_primary per user                 │ • resident_  │         │
+│  - Only one is_active per user (context)        │   name       │         │
+│  - Supports FLAT and HOUSE unit types           └──────────────┘         │
+│  - Multiple households per house (diff floors)                           │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 
@@ -448,12 +496,14 @@ INSERT INTO users (phone, full_name, user_type, is_verified) VALUES
 
 ### 4.2 Societies Table
 
-**Purpose:** Housing societies/complexes
+**Purpose:** Housing societies/complexes (apartments and independent house layouts)
 
 ```sql
 CREATE TABLE societies (
-  society_id SERIAL PRIMARY KEY,
+  society_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
+  society_type VARCHAR(20) DEFAULT 'APARTMENT'
+    CHECK (society_type IN ('APARTMENT', 'LAYOUT')),
   address TEXT NOT NULL,
   city VARCHAR(100) NOT NULL,
   state VARCHAR(100) NOT NULL,
@@ -464,69 +514,211 @@ CREATE TABLE societies (
   contact_phone VARCHAR(15),
   contact_email VARCHAR(255),
 
-  -- Stats
+  -- Stats - for apartments
   total_flats INTEGER,
   occupied_flats INTEGER,
 
+  -- Stats - for layouts/independent houses
+  total_houses INTEGER,
+  occupied_houses INTEGER,
+
   -- Status
-  status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACTIVE', 'SUSPENDED', 'INACTIVE')),
+  status VARCHAR(20) DEFAULT 'PENDING'
+    CHECK (status IN ('PENDING', 'ACTIVE', 'SUSPENDED', 'INACTIVE')),
   is_active BOOLEAN DEFAULT true,
 
   -- Metadata
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
-  created_by UUID REFERENCES users(user_id)
+  created_by UUID REFERENCES users(user_id),
+
+  -- Constraints: Must have either flats or houses based on type
+  CHECK (
+    (society_type = 'APARTMENT' AND total_flats IS NOT NULL) OR
+    (society_type = 'LAYOUT' AND total_houses IS NOT NULL)
+  )
 );
 
 -- Indexes
 CREATE INDEX idx_societies_status ON societies(status);
 CREATE INDEX idx_societies_city ON societies(city);
 CREATE INDEX idx_societies_pincode ON societies(pincode);
+CREATE INDEX idx_societies_type ON societies(society_type);
 CREATE INDEX idx_societies_active ON societies(is_active) WHERE is_active = true;
 
--- Full-text search
-CREATE INDEX idx_societies_search ON societies USING gin(to_tsvector('english', name || ' ' || address));
+-- Full-text search (includes pincode for better search)
+CREATE INDEX idx_societies_search ON societies USING gin(
+  to_tsvector('english', name || ' ' || address || ' ' || pincode)
+);
 ```
+
+**Notes:**
+- `society_type`: 'APARTMENT' for multi-unit buildings, 'LAYOUT' for independent houses
+- For apartments: `total_flats` and `occupied_flats` are used
+- For layouts: `total_houses` and `occupied_houses` are used
+- Constraint ensures appropriate stats are populated based on society type
 
 ---
 
 ### 4.3 Residents Table
 
-**Purpose:** Resident-specific information
+**Purpose:** Resident-society relationships (supports multi-society membership and independent houses)
 
 ```sql
 CREATE TABLE residents (
-  resident_id UUID PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
-  society_id INTEGER REFERENCES societies(society_id),
-  flat_number VARCHAR(20) NOT NULL,
-  tower VARCHAR(10),
-  floor INTEGER,
+  resident_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  society_id INTEGER NOT NULL REFERENCES societies(society_id) ON DELETE CASCADE,
 
-  -- Secondary societies (for multi-property residents)
-  additional_societies JSONB DEFAULT '[]'::jsonb,
+  -- Unit type
+  unit_type VARCHAR(10) NOT NULL CHECK (unit_type IN ('FLAT', 'HOUSE')),
+
+  -- For apartments (FLAT)
+  flat_number VARCHAR(20),
+  tower VARCHAR(10),
+
+  -- For independent houses (HOUSE)
+  house_number VARCHAR(20),
+  street VARCHAR(100),
+
+  -- Common fields
+  floor INTEGER,
+  notes TEXT,
+
+  -- Multi-society support
+  is_primary BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT false,
 
   -- Preferences
   preferred_pickup_time TIME,
   default_pickup_address TEXT,
 
   -- Status
-  verification_status VARCHAR(20) DEFAULT 'PENDING' CHECK (verification_status IN ('PENDING', 'VERIFIED', 'REJECTED')),
+  verification_status VARCHAR(20) DEFAULT 'PENDING'
+    CHECK (verification_status IN ('PENDING', 'VERIFIED', 'REJECTED')),
+  rejection_reason TEXT,
 
   -- Metadata
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
+  verified_at TIMESTAMP,
+  verified_by UUID REFERENCES users(user_id),
 
-  UNIQUE(society_id, flat_number)
+  -- Constraints
+  CHECK (
+    (unit_type = 'FLAT' AND flat_number IS NOT NULL) OR
+    (unit_type = 'HOUSE' AND house_number IS NOT NULL)
+  ),
+
+  -- Allow multiple households in same unit (different floors)
+  -- Remove the old UNIQUE constraint, add these instead:
+  UNIQUE(society_id, unit_type, flat_number, tower, floor),
+  UNIQUE(society_id, unit_type, house_number, street, floor)
 );
 
 -- Indexes
+CREATE INDEX idx_residents_user ON residents(user_id);
 CREATE INDEX idx_residents_society ON residents(society_id);
 CREATE INDEX idx_residents_status ON residents(verification_status);
+CREATE INDEX idx_residents_primary ON residents(user_id, is_primary) WHERE is_primary = true;
+CREATE INDEX idx_residents_active ON residents(user_id, is_active) WHERE is_active = true;
+CREATE INDEX idx_residents_unit_type ON residents(unit_type);
+
+-- Composite index for flat lookup
+CREATE INDEX idx_residents_flat_lookup ON residents(society_id, flat_number, tower)
+  WHERE unit_type = 'FLAT';
+
+-- Composite index for house lookup
+CREATE INDEX idx_residents_house_lookup ON residents(society_id, house_number, street)
+  WHERE unit_type = 'HOUSE';
+
+-- Most common query: get user's active verified residence
+CREATE INDEX idx_residents_user_active_verified ON residents(user_id)
+  WHERE is_active = true AND verification_status = 'VERIFIED';
 ```
+
+**Notes:**
+- Changed from `resident_id UUID PRIMARY KEY` to `resident_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY` to allow multiple residences per user
+- `user_id`: Links to users table (one user can have multiple residences)
+- `unit_type`: 'FLAT' for apartments, 'HOUSE' for independent houses
+- `is_primary`: User's main residence (only one can be true per user)
+- `is_active`: Currently selected society context (only one can be true per user)
+- Multiple households in same house: Same `house_number` but different `floor` values
+- UNIQUE constraints allow multiple floors in same flat/house number
+- Triggers (defined later) ensure only one primary and one active per user
 
 ---
 
-### 4.4 Vendors Table
+### 4.4 Society Roster Table
+
+**Purpose:** Pre-approved resident lists for instant verification during onboarding
+
+```sql
+CREATE TABLE society_roster (
+  roster_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  society_id INTEGER NOT NULL REFERENCES societies(society_id) ON DELETE CASCADE,
+  phone VARCHAR(15) NOT NULL,
+  resident_name VARCHAR(255),
+
+  -- Unit information
+  unit_type VARCHAR(10) NOT NULL CHECK (unit_type IN ('FLAT', 'HOUSE')),
+
+  -- For apartments
+  flat_number VARCHAR(20),
+  tower VARCHAR(10),
+
+  -- For independent houses
+  house_number VARCHAR(20),
+  street VARCHAR(100),
+
+  -- Common
+  floor INTEGER,
+  notes TEXT,
+
+  -- Status
+  is_active BOOLEAN DEFAULT true,
+
+  -- Metadata
+  added_at TIMESTAMP DEFAULT NOW(),
+  added_by UUID REFERENCES users(user_id),
+  updated_at TIMESTAMP DEFAULT NOW(),
+
+  -- Constraints
+  CHECK (
+    (unit_type = 'FLAT' AND flat_number IS NOT NULL) OR
+    (unit_type = 'HOUSE' AND house_number IS NOT NULL)
+  )
+);
+
+-- Indexes
+CREATE INDEX idx_roster_phone ON society_roster(phone);
+CREATE INDEX idx_roster_society ON society_roster(society_id);
+CREATE INDEX idx_roster_active ON society_roster(is_active) WHERE is_active = true;
+
+-- Most common query: check if phone exists in roster
+CREATE INDEX idx_roster_phone_active ON society_roster(phone, is_active)
+  WHERE is_active = true;
+
+-- Lookup by phone and society
+CREATE INDEX idx_roster_lookup ON society_roster(phone, society_id)
+  WHERE is_active = true;
+```
+
+**Notes:**
+- Uploaded by society admins to pre-approve residents
+- One phone can appear multiple times (multiple societies or multiple floors in same society)
+- Enables instant verification during resident onboarding
+- `is_active`: Allows soft-delete of roster entries without removing data
+- No UNIQUE constraint on phone - allows same phone in multiple societies/units
+
+**Example Use Cases:**
+1. Family with multiple properties: Same phone in roster for 2 different societies
+2. Multi-floor household: Same phone, same house_number, different floors
+3. Joint ownership: Multiple phones for same flat/house
+
+---
+
+### 4.5 Vendors Table
 
 **Purpose:** Service provider information (formerly laundry_persons)
 
@@ -586,7 +778,7 @@ CREATE INDEX idx_vendors_search ON vendors USING gin(
 
 ```sql
 CREATE TABLE vendor_societies (
-  id SERIAL PRIMARY KEY,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vendor_id UUID REFERENCES vendors(vendor_id) ON DELETE CASCADE,
   society_id INTEGER REFERENCES societies(society_id) ON DELETE CASCADE,
 
@@ -619,7 +811,7 @@ CREATE INDEX idx_vendor_societies_status ON vendor_societies(approval_status);
 
 ```sql
 CREATE TABLE parent_categories (
-  category_id SERIAL PRIMARY KEY,
+  category_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   category_key VARCHAR(50) UNIQUE NOT NULL,
   category_name VARCHAR(100) NOT NULL,
   description TEXT,
@@ -659,7 +851,7 @@ INSERT INTO parent_categories (category_key, category_name, description, color_h
 
 ```sql
 CREATE TABLE service_categories (
-  service_id SERIAL PRIMARY KEY,
+  service_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   parent_category_id INTEGER REFERENCES parent_categories(category_id) ON DELETE CASCADE,
   service_key VARCHAR(50) NOT NULL,
   service_name VARCHAR(100) NOT NULL,
@@ -729,7 +921,7 @@ END $$;
 
 ```sql
 CREATE TABLE vendor_services (
-  id SERIAL PRIMARY KEY,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vendor_id UUID REFERENCES vendors(vendor_id) ON DELETE CASCADE,
   service_id INTEGER REFERENCES service_categories(service_id) ON DELETE CASCADE,
 
@@ -758,7 +950,7 @@ CREATE INDEX idx_vendor_services_active ON vendor_services(is_active) WHERE is_a
 
 ```sql
 CREATE TABLE rate_cards (
-  rate_card_id SERIAL PRIMARY KEY,
+  rate_card_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vendor_id UUID REFERENCES vendors(vendor_id) ON DELETE CASCADE,
   society_id INTEGER REFERENCES societies(society_id) ON DELETE CASCADE,
 
@@ -788,7 +980,7 @@ CREATE INDEX idx_rate_cards_active ON rate_cards(is_active) WHERE is_active = tr
 
 ```sql
 CREATE TABLE rate_card_items (
-  item_id SERIAL PRIMARY KEY,
+  item_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   rate_card_id INTEGER REFERENCES rate_cards(rate_card_id) ON DELETE CASCADE,
   service_id INTEGER REFERENCES service_categories(service_id) ON DELETE CASCADE,
 
@@ -822,7 +1014,7 @@ CREATE INDEX idx_rate_items_active ON rate_card_items(is_active) WHERE is_active
 
 ```sql
 CREATE TABLE service_workflow_templates (
-  template_id SERIAL PRIMARY KEY,
+  template_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   service_id INTEGER REFERENCES service_categories(service_id) ON DELETE CASCADE,
   template_name VARCHAR(100) NOT NULL,
   description TEXT,
@@ -856,7 +1048,7 @@ CREATE INDEX idx_workflow_templates_default ON service_workflow_templates(servic
 
 ```sql
 CREATE TABLE workflow_steps (
-  step_id SERIAL PRIMARY KEY,
+  step_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   template_id INTEGER REFERENCES service_workflow_templates(template_id) ON DELETE CASCADE,
   step_name VARCHAR(100) NOT NULL,
   step_key VARCHAR(50) NOT NULL,  -- e.g., 'pickup', 'count', 'iron', 'quality_check'
@@ -1138,7 +1330,7 @@ CREATE TRIGGER trigger_generate_order_number
 
 ```sql
 CREATE TABLE order_items (
-  id SERIAL PRIMARY KEY,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   order_id UUID REFERENCES orders(order_id) ON DELETE CASCADE,
   rate_card_item_id INTEGER REFERENCES rate_card_items(item_id),
   service_id INTEGER REFERENCES service_categories(service_id) ON DELETE RESTRICT,
@@ -1166,7 +1358,7 @@ CREATE INDEX idx_order_items_service ON order_items(service_id);
 
 ```sql
 CREATE TABLE order_service_status (
-  id SERIAL PRIMARY KEY,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   order_id UUID REFERENCES orders(order_id) ON DELETE CASCADE,
   service_id INTEGER REFERENCES service_categories(service_id) ON DELETE RESTRICT,
   template_id INTEGER REFERENCES service_workflow_templates(template_id),
@@ -1210,7 +1402,7 @@ CREATE INDEX idx_order_service_status_step ON order_service_status(current_step_
 
 ```sql
 CREATE TABLE order_workflow_progress (
-  id SERIAL PRIMARY KEY,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   order_id UUID REFERENCES orders(order_id) ON DELETE CASCADE,
   service_id INTEGER REFERENCES service_categories(service_id) ON DELETE RESTRICT,
   step_id INTEGER REFERENCES workflow_steps(step_id) ON DELETE RESTRICT,
@@ -1260,7 +1452,7 @@ CREATE INDEX idx_workflow_progress_completed ON order_workflow_progress(complete
 
 ```sql
 CREATE TABLE order_status_log (
-  id SERIAL PRIMARY KEY,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   order_id UUID REFERENCES orders(order_id) ON DELETE CASCADE,
   service_id INTEGER REFERENCES service_categories(service_id),  -- NULL if overall order status
 
@@ -1339,7 +1531,7 @@ CREATE INDEX idx_payments_razorpay_order ON payments(razorpay_order_id);
 
 ```sql
 CREATE TABLE settlements (
-  settlement_id SERIAL PRIMARY KEY,
+  settlement_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vendor_id UUID REFERENCES vendors(vendor_id) ON DELETE CASCADE,
 
   -- Period
@@ -1384,7 +1576,7 @@ CREATE TYPE subscription_tier AS ENUM ('STARTER', 'GROWTH', 'ENTERPRISE');
 CREATE TYPE subscription_status AS ENUM ('TRIAL', 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'EXPIRED');
 
 CREATE TABLE society_subscriptions (
-  subscription_id SERIAL PRIMARY KEY,
+  subscription_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   society_id INTEGER UNIQUE REFERENCES societies(society_id) ON DELETE CASCADE,
 
   -- Plan
@@ -1429,7 +1621,7 @@ CREATE INDEX idx_subscriptions_next_billing ON society_subscriptions(next_billin
 
 ```sql
 CREATE TABLE subscription_invoices (
-  invoice_id SERIAL PRIMARY KEY,
+  invoice_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   subscription_id INTEGER REFERENCES society_subscriptions(subscription_id) ON DELETE CASCADE,
   society_id INTEGER REFERENCES societies(society_id) ON DELETE CASCADE,
   invoice_number VARCHAR(50) UNIQUE NOT NULL,
@@ -1479,7 +1671,7 @@ CREATE INDEX idx_invoices_number ON subscription_invoices(invoice_number);
 
 ```sql
 CREATE TABLE disputes (
-  dispute_id SERIAL PRIMARY KEY,
+  dispute_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   order_id UUID REFERENCES orders(order_id) ON DELETE CASCADE,
   service_id INTEGER REFERENCES service_categories(service_id),  -- Which service had the issue
   raised_by UUID REFERENCES users(user_id),
@@ -1530,7 +1722,7 @@ CREATE INDEX idx_disputes_created ON disputes(created_at DESC);
 
 ```sql
 CREATE TABLE ratings (
-  rating_id SERIAL PRIMARY KEY,
+  rating_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   order_id UUID UNIQUE REFERENCES orders(order_id) ON DELETE CASCADE,
   resident_id UUID REFERENCES residents(resident_id),
   vendor_id UUID REFERENCES vendors(vendor_id),
@@ -1596,7 +1788,7 @@ CREATE TRIGGER trigger_update_vendor_avg_rating
 
 ```sql
 CREATE TABLE notifications (
-  notification_id SERIAL PRIMARY KEY,
+  notification_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
 
   -- Notification details
@@ -1898,11 +2090,295 @@ END;
 $$ LANGUAGE plpgsql;
 ```
 
+### 12.5 Check Resident in Roster
+
+```sql
+CREATE OR REPLACE FUNCTION check_resident_in_roster(p_phone VARCHAR(15))
+RETURNS TABLE(
+  society_id INTEGER,
+  society_name VARCHAR(255),
+  society_type VARCHAR(20),
+  address TEXT,
+  city VARCHAR(100),
+  unit_type VARCHAR(10),
+  flat_number VARCHAR(20),
+  tower VARCHAR(10),
+  house_number VARCHAR(20),
+  street VARCHAR(100),
+  floor INTEGER,
+  suggested_name VARCHAR(255),
+  notes TEXT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    s.society_id,
+    s.name as society_name,
+    s.society_type,
+    s.address,
+    s.city,
+    sr.unit_type,
+    sr.flat_number,
+    sr.tower,
+    sr.house_number,
+    sr.street,
+    sr.floor,
+    sr.resident_name as suggested_name,
+    sr.notes
+  FROM society_roster sr
+  JOIN societies s ON sr.society_id = s.society_id
+  WHERE sr.phone = p_phone
+    AND sr.is_active = true
+    AND s.is_active = true
+    AND s.status = 'ACTIVE'
+  ORDER BY
+    -- Primary residence first (if marked in roster notes)
+    CASE WHEN sr.notes ILIKE '%primary%' THEN 0 ELSE 1 END,
+    sr.added_at ASC;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Usage:**
+```sql
+SELECT * FROM check_resident_in_roster('+919876543210');
+```
+
+### 12.6 Set Active Society
+
+```sql
+CREATE OR REPLACE FUNCTION set_active_society(
+  p_user_id UUID,
+  p_society_id INTEGER
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_count INTEGER;
+BEGIN
+  -- Check if user has verified residence in this society
+  SELECT COUNT(*) INTO v_count
+  FROM residents
+  WHERE user_id = p_user_id
+    AND society_id = p_society_id
+    AND verification_status = 'VERIFIED';
+
+  IF v_count = 0 THEN
+    RAISE EXCEPTION 'User not verified in this society';
+  END IF;
+
+  -- Deactivate all other residences for this user
+  UPDATE residents
+  SET is_active = false,
+      updated_at = NOW()
+  WHERE user_id = p_user_id
+    AND society_id != p_society_id;
+
+  -- Activate the selected society
+  UPDATE residents
+  SET is_active = true,
+      updated_at = NOW()
+  WHERE user_id = p_user_id
+    AND society_id = p_society_id;
+
+  RETURN true;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Usage:**
+```sql
+SELECT set_active_society('user-uuid', 3);
+```
+
+### 12.7 Get User Active Society
+
+```sql
+CREATE OR REPLACE FUNCTION get_user_active_society(p_user_id UUID)
+RETURNS TABLE(
+  resident_id INTEGER,
+  society_id INTEGER,
+  society_name VARCHAR(255),
+  society_type VARCHAR(20),
+  unit_type VARCHAR(10),
+  flat_number VARCHAR(20),
+  house_number VARCHAR(20),
+  floor INTEGER
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    r.resident_id,
+    r.society_id,
+    s.name as society_name,
+    s.society_type,
+    r.unit_type,
+    r.flat_number,
+    r.house_number,
+    r.floor
+  FROM residents r
+  JOIN societies s ON r.society_id = s.society_id
+  WHERE r.user_id = p_user_id
+    AND r.is_active = true
+    AND r.verification_status = 'VERIFIED'
+  LIMIT 1;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Usage:**
+```sql
+SELECT * FROM get_user_active_society('user-uuid');
+```
+
+### 12.8 Get User All Residences
+
+```sql
+CREATE OR REPLACE FUNCTION get_user_all_residences(p_user_id UUID)
+RETURNS TABLE(
+  resident_id INTEGER,
+  society_id INTEGER,
+  society_name VARCHAR(255),
+  society_type VARCHAR(20),
+  address TEXT,
+  city VARCHAR(100),
+  unit_type VARCHAR(10),
+  flat_number VARCHAR(20),
+  tower VARCHAR(10),
+  house_number VARCHAR(20),
+  street VARCHAR(100),
+  floor INTEGER,
+  notes TEXT,
+  is_primary BOOLEAN,
+  is_active BOOLEAN,
+  verification_status VARCHAR(20),
+  verified_at TIMESTAMP
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    r.resident_id,
+    r.society_id,
+    s.name as society_name,
+    s.society_type,
+    s.address,
+    s.city,
+    r.unit_type,
+    r.flat_number,
+    r.tower,
+    r.house_number,
+    r.street,
+    r.floor,
+    r.notes,
+    r.is_primary,
+    r.is_active,
+    r.verification_status,
+    r.verified_at
+  FROM residents r
+  JOIN societies s ON r.society_id = s.society_id
+  WHERE r.user_id = p_user_id
+  ORDER BY
+    r.is_primary DESC,
+    r.is_active DESC,
+    r.verified_at DESC NULLS LAST;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Usage:**
+```sql
+SELECT * FROM get_user_all_residences('user-uuid');
+```
+
 ---
 
-## 13. Row Level Security (RLS)
+## 13. Triggers for Multi-Society Business Logic
 
-### 13.1 Enable RLS
+### 13.1 Ensure Only One Primary Residence
+
+```sql
+CREATE OR REPLACE FUNCTION enforce_single_primary_residence()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- If setting this residence as primary
+  IF NEW.is_primary = true THEN
+    -- Remove primary flag from all other residences for this user
+    UPDATE residents
+    SET is_primary = false,
+        updated_at = NOW()
+    WHERE user_id = NEW.user_id
+      AND resident_id != COALESCE(NEW.resident_id, -1);
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_enforce_single_primary
+  BEFORE INSERT OR UPDATE ON residents
+  FOR EACH ROW
+  EXECUTE FUNCTION enforce_single_primary_residence();
+```
+
+### 13.2 Ensure Only One Active Society
+
+```sql
+CREATE OR REPLACE FUNCTION enforce_single_active_society()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- If setting this residence as active
+  IF NEW.is_active = true THEN
+    -- Deactivate all other residences for this user
+    UPDATE residents
+    SET is_active = false,
+        updated_at = NOW()
+    WHERE user_id = NEW.user_id
+      AND resident_id != COALESCE(NEW.resident_id, -1);
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_enforce_single_active
+  BEFORE INSERT OR UPDATE ON residents
+  FOR EACH ROW
+  EXECUTE FUNCTION enforce_single_active_society();
+```
+
+### 13.3 Auto-set First Residence Flags
+
+```sql
+CREATE OR REPLACE FUNCTION set_first_residence_flags()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_count INTEGER;
+BEGIN
+  -- Count existing residences for this user
+  SELECT COUNT(*) INTO v_count
+  FROM residents
+  WHERE user_id = NEW.user_id;
+
+  -- If this is the first residence, make it primary and active
+  IF v_count = 0 THEN
+    NEW.is_primary := true;
+    NEW.is_active := true;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_set_first_residence_flags
+  BEFORE INSERT ON residents
+  FOR EACH ROW
+  EXECUTE FUNCTION set_first_residence_flags();
+```
+
+---
+
+## 14. Row Level Security (RLS)
+
+### 14.1 Enable RLS
 
 ```sql
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -1917,7 +2393,7 @@ ALTER TABLE disputes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ```
 
-### 13.2 RLS Policies
+### 14.2 RLS Policies
 
 **Users:**
 ```sql
@@ -1955,9 +2431,9 @@ USING (
 
 ---
 
-## 14. Sample Data
+## 15. Sample Data
 
-### 14.1 Complete Sample Dataset
+### 15.1 Complete Sample Dataset
 
 ```sql
 -- Create sample users
@@ -2001,6 +2477,760 @@ WHERE v.business_name = 'Perfect Press'
 
 -- Initialize workflows for offered services
 -- (Workflows already created in section 6.3)
+```
+
+---
+
+## 16. Data Flow Examples & Storage Patterns
+
+This section provides comprehensive examples of how data flows through the system and how relationships are stored across tables.
+
+---
+
+### 16.1 User Registration & Authentication Flow
+
+#### 16.1.1 Resident Registration (From Roster)
+
+**Scenario:** Ramesh Kumar registers for Maple Gardens apartment A-404. He's already in the society roster.
+
+**Step 1: Check Roster**
+```sql
+-- API: POST /api/v1/onboarding/resident/check-roster
+SELECT
+  sr.society_id,
+  s.society_name,
+  s.society_type,
+  sr.unit_type,
+  sr.flat_number,
+  sr.house_number,
+  sr.floor
+FROM society_roster sr
+JOIN societies s ON s.society_id = sr.society_id
+WHERE sr.phone = '+919876543210'
+  AND sr.is_active = true;
+
+-- Result: Found in roster for Maple Gardens, A-404
+```
+
+**Step 2: Register User**
+```sql
+-- API: POST /api/v1/onboarding/resident/register
+-- Creates records in TWO tables:
+
+-- 1. users table (user account)
+INSERT INTO users (user_id, phone, full_name, email, user_type, is_verified)
+VALUES (
+  'uuid-ramesh-001',
+  '+919876543210',
+  'Ramesh Kumar',
+  'ramesh@example.com',
+  'RESIDENT',
+  true  -- Auto-verified because from roster
+);
+
+-- 2. residents table (residence information)
+INSERT INTO residents (
+  user_id, society_id, unit_type, flat_number, tower, floor,
+  is_primary, is_active, verification_status
+)
+VALUES (
+  'uuid-ramesh-001',
+  1,  -- Maple Gardens
+  'FLAT',
+  'A-404',
+  'A',
+  4,
+  true,   -- First residence is primary
+  true,   -- First residence is active
+  'VERIFIED'  -- Auto-verified from roster
+);
+```
+
+**Storage Pattern:**
+```
+users table:
+┌──────────────────┬────────────────┬──────────────┬───────────────┬─────────────┐
+│ user_id          │ phone          │ full_name    │ user_type     │ is_verified │
+├──────────────────┼────────────────┼──────────────┼───────────────┼─────────────┤
+│ uuid-ramesh-001  │ +919876543210  │ Ramesh Kumar │ RESIDENT      │ true        │
+└──────────────────┴────────────────┴──────────────┴───────────────┴─────────────┘
+
+residents table:
+┌───────────┬──────────────────┬────────────┬─────────────┬────────────┬────────────┬──────────┐
+│resident_id│ user_id          │ society_id │ flat_number │ is_primary │ is_active  │ verified │
+├───────────┼──────────────────┼────────────┼─────────────┼────────────┼────────────┼──────────┤
+│ 1         │ uuid-ramesh-001  │ 1          │ A-404       │ true       │ true       │ VERIFIED │
+└───────────┴──────────────────┴────────────┴─────────────┴────────────┴────────────┴──────────┘
+```
+
+---
+
+#### 16.1.2 Multi-Society Registration
+
+**Scenario:** Ramesh later adds a weekend home in Palm Residency
+
+**API Call:** `POST /api/v1/residents/add-residence`
+
+```sql
+-- Check roster for second society
+SELECT * FROM society_roster
+WHERE phone = '+919876543210'
+  AND society_id = 2;  -- Palm Residency
+
+-- Add second residence (same user_id, different society)
+INSERT INTO residents (
+  user_id, society_id, unit_type, flat_number,
+  is_primary, is_active, verification_status
+)
+VALUES (
+  'uuid-ramesh-001',  -- Same user_id
+  2,  -- Palm Residency
+  'FLAT',
+  '201',
+  false,  -- Not primary
+  false,  -- Not active (Maple Gardens is still active)
+  'VERIFIED'
+);
+```
+
+**Storage Pattern (Multi-Society):**
+```
+users table (unchanged):
+┌──────────────────┬────────────────┬──────────────┐
+│ user_id          │ phone          │ full_name    │
+├──────────────────┼────────────────┼──────────────┤
+│ uuid-ramesh-001  │ +919876543210  │ Ramesh Kumar │
+└──────────────────┴────────────────┴──────────────┘
+
+residents table (now has 2 rows for same user):
+┌───────────┬──────────────────┬────────────┬──────────────────┬─────────────┬────────────┬──────────┐
+│resident_id│ user_id          │ society_id │ flat_number      │ is_primary  │ is_active  │ verified │
+├───────────┼──────────────────┼────────────┼──────────────────┼─────────────┼────────────┼──────────┤
+│ 1         │ uuid-ramesh-001  │ 1          │ A-404 (Maple)    │ true        │ true       │ VERIFIED │
+│ 2         │ uuid-ramesh-001  │ 2          │ 201 (Palm)       │ false       │ false      │ VERIFIED │
+└───────────┴──────────────────┴────────────┴──────────────────┴─────────────┴────────────┴──────────┘
+```
+
+**Key Point:** One `user_id` can have multiple rows in `residents` table (one per society)
+
+---
+
+#### 16.1.3 Switching Active Society
+
+**Scenario:** Ramesh switches to his Palm Residency home for the weekend
+
+**API Call:** `POST /api/v1/residents/switch-society`
+
+```sql
+-- Function handles the switch with triggers
+SELECT set_active_society('uuid-ramesh-001', 2);
+
+-- What happens internally:
+-- 1. Set all residences for this user to is_active = false
+UPDATE residents
+SET is_active = false
+WHERE user_id = 'uuid-ramesh-001';
+
+-- 2. Set selected society to is_active = true
+UPDATE residents
+SET is_active = true
+WHERE user_id = 'uuid-ramesh-001'
+  AND society_id = 2;
+```
+
+**Result:**
+```
+residents table (after switch):
+┌───────────┬──────────────────┬────────────┬─────────────┬────────────┬──────────┐
+│resident_id│ user_id          │ society_id │ flat_number │ is_active  │ verified │
+├───────────┼──────────────────┼────────────┼─────────────┼────────────┼──────────┤
+│ 1         │ uuid-ramesh-001  │ 1          │ A-404       │ false      │ VERIFIED │
+│ 2         │ uuid-ramesh-001  │ 2          │ 201         │ true ✓     │ VERIFIED │
+└───────────┴──────────────────┴────────────┴─────────────┴────────────┴──────────┘
+```
+
+---
+
+### 16.2 Vendor Registration & Profile Setup Flow
+
+#### 16.2.1 Initial Vendor Registration
+
+**Scenario:** Priya Sharma registers "Perfect Press" laundry business
+
+**API Call:** `POST /api/v1/onboarding/vendor/register`
+
+```sql
+-- Step 1: Create user account
+INSERT INTO users (user_id, phone, full_name, email, user_type, is_verified)
+VALUES (
+  'uuid-priya-001',
+  '+919876543211',
+  'Priya Sharma',
+  'priya@perfectpress.com',
+  'VENDOR',
+  false  -- Pending platform approval
+);
+
+-- Step 2: Create vendor business profile
+INSERT INTO vendors (
+  vendor_id,          -- Same as user_id (1:1 relationship)
+  business_name,
+  store_address,
+  id_proof_type,
+  id_proof_number,
+  gst_number,
+  pan_number,
+  approval_status
+)
+VALUES (
+  'uuid-priya-001',   -- References users.user_id
+  'Perfect Press',
+  '789 Market Street, Koramangala',
+  'AADHAAR',
+  '1234-5678-9012',
+  '29ABCDE1234F1Z5',
+  'ABCDE1234F',
+  'PENDING'
+);
+```
+
+**Storage Pattern:**
+```
+users table:
+┌──────────────────┬────────────────┬──────────────┬─────────────────────────┬───────────┐
+│ user_id          │ phone          │ full_name    │ email                   │ user_type │
+├──────────────────┼────────────────┼──────────────┼─────────────────────────┼───────────┤
+│ uuid-priya-001   │ +919876543211  │ Priya Sharma │ priya@perfectpress.com  │ VENDOR    │
+└──────────────────┴────────────────┴──────────────┴─────────────────────────┴───────────┘
+
+vendors table:
+┌──────────────────┬──────────────┬──────────────────┬─────────────────┬──────────────┐
+│ vendor_id (PK,FK)│ business_name│ store_address    │ gst_number      │ approval_    │
+│                  │              │                  │                 │ status       │
+├──────────────────┼──────────────┼──────────────────┼─────────────────┼──────────────┤
+│ uuid-priya-001   │ Perfect Press│ 789 Market St... │ 29ABCDE1234F1Z5 │ PENDING      │
+└──────────────────┴──────────────┴──────────────────┴─────────────────┴──────────────┘
+```
+
+**Key Relationship:** `vendors.vendor_id` is both PRIMARY KEY and FOREIGN KEY to `users.user_id`
+
+---
+
+#### 16.2.2 Adding Bank Details
+
+**API Call:** `PUT /api/v1/onboarding/vendor/{vendor_id}/bank-details`
+
+```sql
+UPDATE vendors
+SET
+  bank_account_number = '1234567890123',
+  bank_ifsc_code = 'SBIN0001234',
+  bank_account_holder = 'Priya Sharma',
+  bank_name = 'State Bank of India',
+  branch_name = 'Koramangala Branch',
+  updated_at = NOW()
+WHERE vendor_id = 'uuid-priya-001';
+```
+
+---
+
+#### 16.2.3 Selecting Services Offered
+
+**API Call:** `POST /api/v1/onboarding/vendor/{vendor_id}/services`
+
+**Scenario:** Perfect Press offers Ironing, Washing+Ironing, and Dry Cleaning
+
+```sql
+-- Get service IDs first
+SELECT service_id, service_key, service_name
+FROM service_categories
+WHERE service_key IN ('IRONING', 'WASHING_IRONING', 'DRY_CLEANING');
+
+-- Result:
+-- service_id: 1, service_key: 'IRONING'
+-- service_id: 2, service_key: 'WASHING_IRONING'
+-- service_id: 3, service_key: 'DRY_CLEANING'
+
+-- Create vendor_services entries
+INSERT INTO vendor_services (vendor_id, service_id, turnaround_hours, is_active)
+VALUES
+  ('uuid-priya-001', 1, 24, true),   -- Ironing: 24 hours
+  ('uuid-priya-001', 2, 48, true),   -- Washing+Ironing: 48 hours
+  ('uuid-priya-001', 3, 120, true);  -- Dry Cleaning: 120 hours
+```
+
+**Storage Pattern:**
+```
+vendor_services table:
+┌────┬──────────────────┬────────────┬───────────────────┬──────────────────┬───────────┐
+│ id │ vendor_id        │ service_id │ turnaround_hours  │ service_name     │ is_active │
+├────┼──────────────────┼────────────┼───────────────────┼──────────────────┼───────────┤
+│ 1  │ uuid-priya-001   │ 1          │ 24                │ Ironing          │ true      │
+│ 2  │ uuid-priya-001   │ 2          │ 48                │ Wash+Iron        │ true      │
+│ 3  │ uuid-priya-001   │ 3          │ 120               │ Dry Cleaning     │ true      │
+└────┴──────────────────┴────────────┴───────────────────┴──────────────────┴───────────┘
+```
+
+**This creates the linkage:** Vendor → Services Offered
+
+---
+
+#### 16.2.4 Requesting Society Access
+
+**API Call:** `POST /api/v1/onboarding/vendor/{vendor_id}/societies`
+
+**Scenario:** Perfect Press requests to serve Maple Gardens and Palm Residency
+
+```sql
+-- Request access to multiple societies
+INSERT INTO vendor_societies (vendor_id, society_id, approval_status)
+VALUES
+  ('uuid-priya-001', 1, 'PENDING'),  -- Maple Gardens
+  ('uuid-priya-001', 2, 'PENDING');  -- Palm Residency
+```
+
+**Storage Pattern:**
+```
+vendor_societies table:
+┌────┬──────────────────┬────────────┬──────────────────┬────────────────┬───────────────┐
+│ id │ vendor_id        │ society_id │ society_name     │ approval_status│ approved_at   │
+├────┼──────────────────┼────────────┼──────────────────┼────────────────┼───────────────┤
+│ 1  │ uuid-priya-001   │ 1          │ Maple Gardens    │ PENDING        │ NULL          │
+│ 2  │ uuid-priya-001   │ 2          │ Palm Residency   │ PENDING        │ NULL          │
+└────┴──────────────────┴────────────┴──────────────────┴────────────────┴───────────────┘
+```
+
+**This creates the linkage:** Vendor → Societies They Want to Serve
+
+---
+
+### 16.3 Vendor-Society-Service Complete Linkage
+
+#### 16.3.1 Three-Way Relationship Overview
+
+After Perfect Press completes onboarding, here's the complete data structure:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          PERFECT PRESS (uuid-priya-001)                  │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                ┌───────────────────┼───────────────────┐
+                │                   │                   │
+                ▼                   ▼                   ▼
+
+   [1] SERVICES OFFERED    [2] SOCIETIES SERVED    [3] RATE CARDS
+   (vendor_services)       (vendor_societies)      (rate_cards + items)
+
+┌─────────────────────┐  ┌──────────────────────┐  ┌────────────────────────┐
+│ • Ironing (24h)     │  │ • Maple Gardens      │  │ Maple Gardens Pricing: │
+│ • Wash+Iron (48h)   │  │   (APPROVED)         │  │ ├─ Shirt (Iron): ₹15   │
+│ • Dry Clean (120h)  │  │ • Palm Residency     │  │ ├─ Shirt (W+I): ₹25    │
+│                     │  │   (APPROVED)         │  │ ├─ Trouser (Iron): ₹20 │
+│                     │  │                      │  │ └─ Saree (DC): ₹150    │
+│                     │  │                      │  │                        │
+│                     │  │                      │  │ Palm Residency Pricing:│
+│                     │  │                      │  │ ├─ Shirt (Iron): ₹18   │
+│                     │  │                      │  │ ├─ Shirt (W+I): ₹28    │
+│                     │  │                      │  │ └─ Trouser (Iron): ₹22 │
+└─────────────────────┘  └──────────────────────┘  └────────────────────────┘
+```
+
+---
+
+#### 16.3.2 Creating Rate Cards Per Society
+
+**After Society Approval:** When Maple Gardens approves Perfect Press
+
+**API Call:** `POST /api/v1/vendors/{vendor_id}/rate-cards`
+
+**Step 1: Create Rate Card Container**
+```sql
+INSERT INTO rate_cards (vendor_id, society_id, is_active, is_published)
+VALUES ('uuid-priya-001', 1, true, false)  -- Not published yet
+RETURNING rate_card_id;
+
+-- Returns: rate_card_id = 1
+```
+
+**Step 2: Add Rate Card Items for Each Service**
+```sql
+-- For Ironing service (service_id = 1)
+INSERT INTO rate_card_items (rate_card_id, service_id, item_name, price_per_piece, display_order)
+VALUES
+  (1, 1, 'Shirt', 15.00, 1),
+  (1, 1, 'Trouser', 20.00, 2),
+  (1, 1, 'T-Shirt', 12.00, 3),
+  (1, 1, 'Saree', 50.00, 4);
+
+-- For Washing+Ironing service (service_id = 2)
+INSERT INTO rate_card_items (rate_card_id, service_id, item_name, price_per_piece, display_order)
+VALUES
+  (1, 2, 'Shirt', 25.00, 1),
+  (1, 2, 'Trouser', 30.00, 2),
+  (1, 2, 'T-Shirt', 22.00, 3),
+  (1, 2, 'Jeans', 40.00, 4);
+
+-- For Dry Cleaning service (service_id = 3)
+INSERT INTO rate_card_items (rate_card_id, service_id, item_name, price_per_piece, display_order)
+VALUES
+  (1, 3, 'Suit 2-piece', 250.00, 1),
+  (1, 3, 'Saree', 150.00, 2),
+  (1, 3, 'Jacket', 180.00, 3),
+  (1, 3, 'Coat', 200.00, 4);
+```
+
+**Step 3: Publish Rate Card**
+```sql
+UPDATE rate_cards
+SET is_published = true, published_at = NOW()
+WHERE rate_card_id = 1;
+```
+
+**Complete Storage Pattern:**
+```
+rate_cards table:
+┌──────────────┬──────────────────┬────────────┬──────────────────┬─────────────┬──────────────┐
+│ rate_card_id │ vendor_id        │ society_id │ society_name     │ is_published│ published_at │
+├──────────────┼──────────────────┼────────────┼──────────────────┼─────────────┼──────────────┤
+│ 1            │ uuid-priya-001   │ 1          │ Maple Gardens    │ true        │ 2025-11-20   │
+│ 2            │ uuid-priya-001   │ 2          │ Palm Residency   │ true        │ 2025-11-21   │
+└──────────────┴──────────────────┴────────────┴──────────────────┴─────────────┴──────────────┘
+
+rate_card_items table (Maple Gardens rate card):
+┌─────────┬──────────────┬────────────┬─────────────┬───────────────────┬────────────────┐
+│ item_id │ rate_card_id │ service_id │ item_name   │ price_per_piece   │ service_type   │
+├─────────┼──────────────┼────────────┼─────────────┼───────────────────┼────────────────┤
+│ 1       │ 1            │ 1          │ Shirt       │ 15.00             │ Ironing        │
+│ 2       │ 1            │ 1          │ Trouser     │ 20.00             │ Ironing        │
+│ 3       │ 1            │ 2          │ Shirt       │ 25.00             │ Wash+Iron      │
+│ 4       │ 1            │ 2          │ Trouser     │ 30.00             │ Wash+Iron      │
+│ 5       │ 1            │ 3          │ Saree       │ 150.00            │ Dry Cleaning   │
+│ 6       │ 1            │ 3          │ Suit 2-piece│ 250.00            │ Dry Cleaning   │
+└─────────┴──────────────┴────────────┴─────────────┴───────────────────┴────────────────┘
+
+rate_card_items table (Palm Residency rate card):
+┌─────────┬──────────────┬────────────┬─────────────┬───────────────────┬────────────────┐
+│ item_id │ rate_card_id │ service_id │ item_name   │ price_per_piece   │ service_type   │
+├─────────┼──────────────┼────────────┼─────────────┼───────────────────┼────────────────┤
+│ 7       │ 2            │ 1          │ Shirt       │ 18.00  (higher!)  │ Ironing        │
+│ 8       │ 2            │ 1          │ Trouser     │ 22.00  (higher!)  │ Ironing        │
+│ 9       │ 2            │ 2          │ Shirt       │ 28.00  (higher!)  │ Wash+Iron      │
+└─────────┴──────────────┴────────────┴─────────────┴───────────────────┴────────────────┘
+```
+
+**Key Insight:** Same vendor can have different pricing for different societies!
+
+---
+
+### 16.4 Vendor Listing & Discovery Flow
+
+#### 16.4.1 How Residents Discover Vendors
+
+**Scenario:** Ramesh (at Maple Gardens) searches for laundry vendors
+
+**API Call:** `GET /api/v1/vendors/search?society_id=1&service_type=LAUNDRY`
+
+**Query Execution:**
+```sql
+-- Complex query that joins multiple tables
+SELECT DISTINCT
+  v.vendor_id,
+  v.business_name,
+  v.store_address,
+  v.avg_rating,
+  v.completed_orders,
+  vs_mapping.approval_status as society_approval,
+  rc.rate_card_id,
+  rc.is_published
+FROM vendors v
+-- Vendor must be approved to serve this society
+INNER JOIN vendor_societies vs_mapping
+  ON vs_mapping.vendor_id = v.vendor_id
+  AND vs_mapping.society_id = 1  -- Maple Gardens
+  AND vs_mapping.approval_status = 'APPROVED'
+-- Vendor must offer laundry services
+INNER JOIN vendor_services vs
+  ON vs.vendor_id = v.vendor_id
+  AND vs.is_active = true
+INNER JOIN service_categories sc
+  ON sc.service_id = vs.service_id
+INNER JOIN parent_categories pc
+  ON pc.category_id = sc.parent_category_id
+  AND pc.category_key = 'LAUNDRY'
+-- Vendor must have published rate card for this society
+LEFT JOIN rate_cards rc
+  ON rc.vendor_id = v.vendor_id
+  AND rc.society_id = 1
+  AND rc.is_published = true
+WHERE v.approval_status = 'APPROVED'
+  AND v.is_available = true
+ORDER BY v.avg_rating DESC, v.completed_orders DESC;
+```
+
+**What This Query Checks:**
+1. ✅ Vendor approved by platform (`v.approval_status = 'APPROVED'`)
+2. ✅ Vendor approved by Maple Gardens (`vs_mapping.approval_status = 'APPROVED'`)
+3. ✅ Vendor offers laundry services (`vendor_services` + `service_categories`)
+4. ✅ Vendor has published rate card for Maple Gardens (`rate_cards.is_published = true`)
+5. ✅ Vendor is currently available (`v.is_available = true`)
+
+**Result:**
+```json
+{
+  "vendors": [
+    {
+      "vendor_id": "uuid-priya-001",
+      "business_name": "Perfect Press",
+      "store_address": "789 Market Street, Koramangala",
+      "avg_rating": 4.8,
+      "completed_orders": 1247,
+      "services_offered": ["Ironing", "Washing+Ironing", "Dry Cleaning"],
+      "has_rate_card": true,
+      "society_approval": "APPROVED"
+    }
+  ]
+}
+```
+
+---
+
+#### 16.4.2 Viewing Vendor Rate Card
+
+**API Call:** `GET /api/v1/vendors/{vendor_id}/rate-card?society_id=1`
+
+**Query Execution:**
+```sql
+-- Get rate card items grouped by service
+SELECT
+  rc.rate_card_id,
+  sc.service_id,
+  sc.service_name,
+  sc.service_key,
+  pc.category_name,
+  vs.turnaround_hours,
+  json_agg(
+    json_build_object(
+      'item_id', rci.item_id,
+      'item_name', rci.item_name,
+      'description', rci.description,
+      'price', rci.price_per_piece,
+      'display_order', rci.display_order
+    ) ORDER BY rci.display_order
+  ) as items
+FROM rate_cards rc
+INNER JOIN rate_card_items rci
+  ON rci.rate_card_id = rc.rate_card_id
+  AND rci.is_active = true
+INNER JOIN service_categories sc
+  ON sc.service_id = rci.service_id
+INNER JOIN parent_categories pc
+  ON pc.category_id = sc.parent_category_id
+INNER JOIN vendor_services vs
+  ON vs.vendor_id = rc.vendor_id
+  AND vs.service_id = sc.service_id
+WHERE rc.vendor_id = 'uuid-priya-001'
+  AND rc.society_id = 1
+  AND rc.is_published = true
+GROUP BY rc.rate_card_id, sc.service_id, sc.service_name,
+         sc.service_key, pc.category_name, vs.turnaround_hours
+ORDER BY sc.display_order;
+```
+
+**Result:**
+```json
+{
+  "rate_card_id": 1,
+  "vendor_name": "Perfect Press",
+  "society_name": "Maple Gardens",
+  "services": [
+    {
+      "service_id": 1,
+      "service_name": "Ironing Only",
+      "category": "Laundry Services",
+      "turnaround_hours": 24,
+      "items": [
+        {"item_name": "Shirt", "price": 15.00},
+        {"item_name": "Trouser", "price": 20.00},
+        {"item_name": "T-Shirt", "price": 12.00},
+        {"item_name": "Saree", "price": 50.00}
+      ]
+    },
+    {
+      "service_id": 2,
+      "service_name": "Washing + Ironing",
+      "category": "Laundry Services",
+      "turnaround_hours": 48,
+      "items": [
+        {"item_name": "Shirt", "price": 25.00},
+        {"item_name": "Trouser", "price": 30.00},
+        {"item_name": "T-Shirt", "price": 22.00},
+        {"item_name": "Jeans", "price": 40.00}
+      ]
+    },
+    {
+      "service_id": 3,
+      "service_name": "Dry Cleaning",
+      "category": "Laundry Services",
+      "turnaround_hours": 120,
+      "items": [
+        {"item_name": "Suit 2-piece", "price": 250.00},
+        {"item_name": "Saree", "price": 150.00},
+        {"item_name": "Jacket", "price": 180.00},
+        {"item_name": "Coat", "price": 200.00}
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### 16.5 Profile Update Flow
+
+#### 16.5.1 Updating User Email (With Verification)
+
+**Scenario:** Ramesh wants to add/update his email address
+
+**Step 1: Request Email Update**
+
+**API Call:** `POST /api/v1/users/{user_id}/update-email`
+
+```sql
+-- Create pending verification record
+INSERT INTO email_verifications (
+  verification_id,
+  user_id,
+  new_email,
+  otp_code,
+  otp_expires_at,
+  is_verified
+)
+VALUES (
+  'uuid-verify-001',
+  'uuid-ramesh-001',
+  'ramesh.new@example.com',
+  '123456',  -- OTP sent via email
+  NOW() + INTERVAL '10 minutes',
+  false
+);
+
+-- NOTE: Email is NOT updated in users table yet!
+```
+
+**Step 2: User Receives OTP and Verifies**
+
+**API Call:** `POST /api/v1/users/{user_id}/verify-email`
+
+```sql
+-- Verify OTP
+SELECT * FROM email_verifications
+WHERE verification_id = 'uuid-verify-001'
+  AND otp_code = '123456'
+  AND otp_expires_at > NOW()
+  AND is_verified = false;
+
+-- If valid, update users table
+UPDATE users
+SET
+  email = 'ramesh.new@example.com',
+  email_verified = true,
+  updated_at = NOW()
+WHERE user_id = 'uuid-ramesh-001';
+
+-- Mark verification as complete
+UPDATE email_verifications
+SET is_verified = true, verified_at = NOW()
+WHERE verification_id = 'uuid-verify-001';
+```
+
+**Storage Pattern:**
+```
+BEFORE verification:
+users table:
+┌──────────────────┬──────────────────────┬────────────────┐
+│ user_id          │ email                │ email_verified │
+├──────────────────┼──────────────────────┼────────────────┤
+│ uuid-ramesh-001  │ ramesh@example.com   │ true           │
+└──────────────────┴──────────────────────┴────────────────┘
+
+email_verifications table (temporary):
+┌──────────────────┬──────────────────┬─────────────────────────┬──────────┬─────────────┐
+│ verification_id  │ user_id          │ new_email               │ otp_code │ is_verified │
+├──────────────────┼──────────────────┼─────────────────────────┼──────────┼─────────────┤
+│ uuid-verify-001  │ uuid-ramesh-001  │ ramesh.new@example.com  │ 123456   │ false       │
+└──────────────────┴──────────────────┴─────────────────────────┴──────────┴─────────────┘
+
+AFTER verification:
+users table:
+┌──────────────────┬─────────────────────────┬────────────────┐
+│ user_id          │ email                   │ email_verified │
+├──────────────────┼─────────────────────────┼────────────────┤
+│ uuid-ramesh-001  │ ramesh.new@example.com  │ true           │  ← Updated!
+└──────────────────┴─────────────────────────┴────────────────┘
+
+email_verifications table:
+┌──────────────────┬──────────────────┬─────────────────────────┬──────────┬─────────────┐
+│ verification_id  │ user_id          │ new_email               │ otp_code │ is_verified │
+├──────────────────┼──────────────────┼─────────────────────────┼──────────┼─────────────┤
+│ uuid-verify-001  │ uuid-ramesh-001  │ ramesh.new@example.com  │ 123456   │ true ✓      │
+└──────────────────┴──────────────────┴─────────────────────────┴──────────┴─────────────┘
+```
+
+---
+
+#### 16.5.2 Updating Phone Number (With OTP)
+
+**Same pattern as email, but uses phone_verifications table and SMS OTP**
+
+**API Calls:**
+1. `POST /api/v1/users/{user_id}/update-phone` → Sends OTP to new number
+2. `POST /api/v1/users/{user_id}/verify-phone` → Verifies OTP and updates
+
+---
+
+### 16.6 Complete Data Relationship Summary
+
+#### All Tables Involved in Vendor Listing
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                     VENDOR LISTING QUERY FLOW                         │
+└──────────────────────────────────────────────────────────────────────┘
+
+1. users table (vendor account)
+   │
+   ▼
+2. vendors table (business profile)
+   │
+   ├──> vendor_services ──> service_categories ──> parent_categories
+   │    (What services?)     (Service details)     (Laundry, Vehicle, etc.)
+   │
+   ├──> vendor_societies ──> societies
+   │    (Which societies?)    (Society details)
+   │
+   └──> rate_cards ──> rate_card_items
+        (Pricing per society) (Items + prices per service)
+```
+
+#### Query Checks Table Chain
+
+```
+For: "Show me laundry vendors in my society"
+
+residents table → Get user's active society
+    ↓
+vendor_societies → Vendors approved for this society
+    ↓
+vendors → Check vendor is approved & available
+    ↓
+vendor_services → Check vendor offers requested service
+    ↓
+service_categories → Verify service is laundry
+    ↓
+rate_cards → Check vendor has published pricing
+    ↓
+RESULT: List of vendors meeting ALL criteria
 ```
 
 ---
