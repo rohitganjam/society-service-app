@@ -14,6 +14,10 @@
    - [Vendor Onboarding](#22-vendor-onboarding)
 3. [Approval & Verification APIs](#3-approval--verification-apis)
    - [Society Admin Approvals](#31-society-admin-approvals)
+     - [Resident Approvals](#311-get-pending-resident-approvals)
+     - [Vendor Approvals](#313-get-pending-vendor-approvals)
+     - [Group Management (Unified Buildings/Phases)](#315-manage-society-groups-unified-for-buildingsphases)
+     - [Vendor Service Area Assignment](#316-assign-vendor-to-service-areas-unified-groups)
    - [Platform Admin Approvals](#32-platform-admin-approvals)
 4. [Rate Card Management APIs](#4-rate-card-management-apis)
 5. [Vendor Listing & Discovery APIs](#5-vendor-listing--discovery-apis)
@@ -1687,6 +1691,357 @@ Authorization: Bearer {access_token}
 
 ---
 
+#### 3.1.5 Manage Society Groups (Unified for Buildings/Phases)
+
+**Endpoint:** `POST /api/v1/admin/society/{society_id}/groups`
+
+**Description:** Create a new group (building/phase/tower/block/etc.) - unified for both apartment and layout societies
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Request Body (Apartment - Building):**
+```json
+{
+  "group_name": "Building A",
+  "group_code": "A",
+  "group_type": "BUILDING",
+  "description": "Main residential tower",
+  "total_floors": 15,
+  "total_units": 60
+}
+```
+
+**Request Body (Layout - Phase):**
+```json
+{
+  "group_name": "Phase 1",
+  "group_code": "P1",
+  "group_type": "PHASE",
+  "description": "Eastern section of the layout",
+  "total_units": 50
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "success": true,
+  "message": "Group created successfully",
+  "data": {
+    "group_id": 1,
+    "society_id": 1,
+    "group_name": "Building A",
+    "group_code": "A",
+    "group_type": "BUILDING",
+    "total_floors": 15,
+    "total_units": 60,
+    "created_at": "2025-11-20T10:00:00Z"
+  }
+}
+```
+
+**Notes:**
+- **Unified endpoint** for both apartments and layouts
+- `group_type` options: 'BUILDING', 'BLOCK', 'TOWER', 'WING', 'PHASE', 'SECTION', 'ZONE'
+- `total_units`: Number of flats (for apartments) OR houses (for layouts)
+- `total_floors`: Only applicable for multi-story buildings
+
+---
+
+**Endpoint:** `GET /api/v1/admin/society/{society_id}/groups`
+
+**Description:** Get all groups for a society (works for both apartments and layouts)
+
+**Query Parameters:**
+- `group_type` (optional): Filter by type (BUILDING, PHASE, etc.)
+
+**Response (200 OK - Apartment Society):**
+```json
+{
+  "success": true,
+  "data": {
+    "society_id": 1,
+    "society_type": "APARTMENT",
+    "groups": [
+      {
+        "group_id": 1,
+        "group_name": "Building A",
+        "group_code": "A",
+        "group_type": "BUILDING",
+        "total_floors": 15,
+        "total_units": 60,
+        "is_active": true
+      },
+      {
+        "group_id": 2,
+        "group_name": "Tower B",
+        "group_code": "B",
+        "group_type": "TOWER",
+        "total_floors": 20,
+        "total_units": 80,
+        "is_active": true
+      }
+    ]
+  }
+}
+```
+
+**Response (200 OK - Layout Society):**
+```json
+{
+  "success": true,
+  "data": {
+    "society_id": 2,
+    "society_type": "LAYOUT",
+    "groups": [
+      {
+        "group_id": 5,
+        "group_name": "Phase 1",
+        "group_code": "P1",
+        "group_type": "PHASE",
+        "total_units": 50,
+        "is_active": true
+      },
+      {
+        "group_id": 6,
+        "group_name": "East Section",
+        "group_code": "ES",
+        "group_type": "SECTION",
+        "total_units": 35,
+        "is_active": true
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### 3.1.6 Assign Vendor to Service Areas (Unified Groups)
+
+**Endpoint:** `POST /api/v1/admin/society/{society_id}/vendors/{vendor_id}/service-areas`
+
+**Description:** Assign vendor to specific groups (buildings/phases) or entire society - unified approach
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Request Body (Assign to entire society):**
+```json
+{
+  "assignment_type": "SOCIETY"
+}
+```
+
+**Request Body (Assign to specific groups - works for both buildings and phases):**
+```json
+{
+  "assignment_type": "GROUP",
+  "group_ids": [1, 2]
+}
+```
+
+**Response (200 OK - Buildings):**
+```json
+{
+  "success": true,
+  "message": "Vendor service areas assigned successfully",
+  "data": {
+    "vendor_id": "uuid-v4",
+    "business_name": "Perfect Press",
+    "society_id": 1,
+    "assignments": [
+      {
+        "assignment_id": 1,
+        "assignment_type": "GROUP",
+        "group_id": 1,
+        "group_name": "Building A",
+        "group_type": "BUILDING",
+        "is_active": true
+      },
+      {
+        "assignment_id": 2,
+        "assignment_type": "GROUP",
+        "group_id": 2,
+        "group_name": "Building B",
+        "group_type": "BUILDING",
+        "is_active": true
+      }
+    ],
+    "coverage_summary": {
+      "covers_entire_society": false,
+      "groups_assigned": 2,
+      "total_groups_in_society": 5,
+      "estimated_households": 108
+    }
+  }
+}
+```
+
+**Response (200 OK - Phases):**
+```json
+{
+  "success": true,
+  "message": "Vendor service areas assigned successfully",
+  "data": {
+    "vendor_id": "uuid-v4",
+    "business_name": "Express Cleaners",
+    "society_id": 2,
+    "assignments": [
+      {
+        "assignment_id": 5,
+        "assignment_type": "GROUP",
+        "group_id": 5,
+        "group_name": "Phase 1",
+        "group_type": "PHASE",
+        "is_active": true
+      },
+      {
+        "assignment_id": 6,
+        "assignment_type": "GROUP",
+        "group_id": 6,
+        "group_name": "Phase 2",
+        "group_type": "PHASE",
+        "is_active": true
+      }
+    ],
+    "coverage_summary": {
+      "covers_entire_society": false,
+      "groups_assigned": 2,
+      "total_groups_in_society": 3,
+      "estimated_households": 85
+    }
+  }
+}
+```
+
+**Notes:**
+- **Simplified assignment types:** Only 'SOCIETY' or 'GROUP'
+- Works uniformly for both apartment buildings and layout phases
+- Can mix different group types in the same assignment (e.g., Building A + Tower B)
+
+---
+
+#### 3.1.7 Get Vendor Service Area Assignments
+
+**Endpoint:** `GET /api/v1/admin/society/{society_id}/vendors/{vendor_id}/service-areas`
+
+**Description:** Get current service area assignments for a vendor
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "vendor_id": "uuid-v4",
+    "business_name": "Perfect Press",
+    "society_id": 1,
+    "assignments": [
+      {
+        "assignment_id": 1,
+        "assignment_type": "GROUP",
+        "group_id": 1,
+        "group_name": "Building A",
+        "group_type": "BUILDING",
+        "is_active": true,
+        "assigned_at": "2025-11-20T10:00:00Z"
+      },
+      {
+        "assignment_id": 2,
+        "assignment_type": "GROUP",
+        "group_id": 2,
+        "group_name": "Tower B",
+        "group_type": "TOWER",
+        "is_active": true,
+        "assigned_at": "2025-11-20T10:00:00Z"
+      }
+    ],
+    "coverage_summary": {
+      "covers_entire_society": false,
+      "assignment_level": "GROUP",
+      "groups_assigned": ["Building A", "Tower B"],
+      "total_groups_in_society": 5,
+      "coverage_percentage": 40
+    }
+  }
+}
+```
+
+---
+
+#### 3.1.8 Update Vendor Service Area Assignments
+
+**Endpoint:** `PUT /api/v1/admin/society/{society_id}/vendors/{vendor_id}/service-areas`
+
+**Description:** Update vendor's service area assignments (replaces existing assignments)
+
+**Request Body (Change to society-wide):**
+```json
+{
+  "assignment_type": "SOCIETY"
+}
+```
+
+**Request Body (Change to specific groups):**
+```json
+{
+  "assignment_type": "GROUP",
+  "group_ids": [1, 2, 3]
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Vendor service areas updated successfully",
+  "data": {
+    "vendor_id": "uuid-v4",
+    "previous_assignments": [
+      {
+        "assignment_type": "GROUP",
+        "groups": ["Building A", "Building B"]
+      }
+    ],
+    "new_assignments": [
+      {
+        "assignment_type": "SOCIETY",
+        "covers_entire_society": true
+      }
+    ],
+    "updated_at": "2025-11-20T11:00:00Z"
+  }
+}
+```
+
+---
+
+#### 3.1.9 Delete Vendor Service Area Assignment
+
+**Endpoint:** `DELETE /api/v1/admin/society/{society_id}/vendors/{vendor_id}/service-areas/{assignment_id}`
+
+**Description:** Remove a specific service area assignment
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Service area assignment removed successfully",
+  "data": {
+    "assignment_id": 1,
+    "vendor_id": "uuid-v4",
+    "remaining_assignments": 1
+  }
+}
+```
+
+---
+
 ### 3.2 Platform Admin Approvals
 
 #### 3.2.1 Get Pending Vendor Verifications
@@ -2157,7 +2512,7 @@ Authorization: Bearer {access_token}
 
 **Endpoint:** `GET /api/v1/societies/{society_id}/vendors`
 
-**Description:** Get all approved vendors serving a specific society
+**Description:** Get approved vendors serving a specific society with smart filtering based on resident's location
 
 **Headers:**
 ```
@@ -2167,10 +2522,19 @@ Authorization: Bearer {access_token}
 **Query Parameters:**
 - `category` (optional): Filter by category (LAUNDRY, VEHICLE, etc.)
 - `service_id` (optional): Filter by specific service type
+- `group_id` (optional): Filter by specific group (building/phase)
+- `show_all` (optional): Show all vendors regardless of assignment (default: false)
 - `sort_by` (optional): rating, delivery_time, orders (default: rating)
 - `order` (optional): asc, desc (default: desc)
 - `page` (optional): Page number
 - `limit` (optional): Items per page
+
+**Filtering Logic:**
+- **Default behavior (show_all=false):** Returns vendors assigned to:
+  - The resident's specific group (building/phase), OR
+  - The entire society (assignment_type='SOCIETY')
+- **Override behavior (show_all=true):** Returns ALL vendors serving the society regardless of assignment
+- If `group_id` is explicitly provided, uses that for filtering instead of resident's group
 
 **Response (200 OK):**
 ```json
@@ -2187,6 +2551,22 @@ Authorization: Bearer {access_token}
         "total_orders": 150,
         "completed_orders": 145,
         "is_available": true,
+        "service_areas": {
+          "assignment_type": "GROUP",
+          "covers_entire_society": false,
+          "assigned_groups": [
+            {
+              "group_id": 1,
+              "group_name": "Building A",
+              "group_type": "BUILDING"
+            },
+            {
+              "group_id": 2,
+              "group_name": "Building B",
+              "group_type": "BUILDING"
+            }
+          ]
+        },
         "services_offered": [
           {
             "service_id": 1,
@@ -2215,16 +2595,70 @@ Authorization: Bearer {access_token}
         ],
         "has_rate_card": true,
         "is_published": true
+      },
+      {
+        "vendor_id": "uuid-v5",
+        "business_name": "Express Cleaners",
+        "store_address": "456 Service Road, Koramangala",
+        "store_photo_url": "https://...",
+        "avg_rating": 4.8,
+        "total_orders": 280,
+        "completed_orders": 275,
+        "is_available": true,
+        "service_areas": {
+          "assignment_type": "SOCIETY",
+          "covers_entire_society": true,
+          "assigned_groups": null
+        },
+        "services_offered": [
+          {
+            "service_id": 1,
+            "service_name": "Ironing Only",
+            "service_key": "IRONING",
+            "category": "LAUNDRY",
+            "turnaround_hours": 24,
+            "starting_price": 12.00
+          }
+        ],
+        "has_rate_card": true,
+        "is_published": true
       }
     ],
+    "filter_info": {
+      "show_all": false,
+      "filtered_by_group": true,
+      "group_id": 1,
+      "group_name": "Building A",
+      "group_type": "BUILDING",
+      "total_vendors_in_society": 15,
+      "vendors_shown": 2
+    },
     "pagination": {
       "current_page": 1,
       "total_pages": 1,
-      "total_items": 1
+      "total_items": 2
     }
   }
 }
 ```
+
+**Example Request - Default filtering for resident in Building A:**
+```
+GET /api/v1/societies/1/vendors?category=LAUNDRY
+```
+Returns vendors assigned to Building A + vendors assigned to entire society
+
+**Example Request - View all vendors:**
+```
+GET /api/v1/societies/1/vendors?category=LAUNDRY&show_all=true
+```
+Returns ALL vendors in the society regardless of building/phase assignment
+
+**Example Request - Specific group:**
+```
+GET /api/v1/societies/1/vendors?group_id=2
+```
+Returns vendors assigned to group ID 2 (e.g., Building B) + vendors assigned to entire society
 
 ---
 

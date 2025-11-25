@@ -125,6 +125,9 @@ deleted_at TIMESTAMP                        -- Soft delete
 **Key Updates in Version 3.0:**
 - ✅ Multi-society support: One user can have residences in multiple societies
 - ✅ Independent house support: Societies can be APARTMENT or LAYOUT type
+- ✅ **Hierarchical society structure**: Buildings/blocks for apartments, phases for layouts
+- ✅ **Multi-level vendor assignments**: Assign vendors to entire society, specific buildings, or specific phases
+- ✅ **Smart vendor filtering**: Default vendor visibility based on resident's building/phase, with override option
 - ✅ Society roster table: Pre-approved residents for instant verification
 - ✅ Residents table redesigned: Allows multiple residences per user with is_primary and is_active flags
 - ✅ Support for multiple households per house: Different floors in same house number
@@ -173,7 +176,7 @@ deleted_at TIMESTAMP                        -- Soft delete
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         USER MANAGEMENT & MULTI-SOCIETY                  │
+│         USER MANAGEMENT, MULTI-SOCIETY & UNIFIED 4-LEVEL HIERARCHY       │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  ┌──────────────┐                              ┌──────────────┐         │
@@ -184,77 +187,90 @@ deleted_at TIMESTAMP                        -- Soft delete
 │  │ • user_type  │                              │ • user_id(FK)│         │
 │  │ • is_verified│                              │ • society_id │         │
 │  └──────────────┘                              │   (FK)       │         │
+│         │                                       │ • group_id   │         │
+│         │                                       │   (FK)       │         │
 │         │                                       │ • unit_type  │         │
 │         │                                       │ • flat_number│         │
-│         │                                       │ • house_num  │         │
-│         │                                       │ • is_primary │         │
-│         │                                       │ • is_active  │         │
-│         │                                       │ • verification         │
-│         │ 1                                     │   _status    │         │
-│         │                                       └──────┬───────┘         │
-│         │                                              │                 │
-│         │                                              │ ∞               │
-│         │                                              │                 │
-│         ▼ ∞                                            │                 │
-│  ┌──────────────┐                                     │                 │
-│  │   vendors    │                                     │                 │
-│  │ ─────────────│                                     │                 │
-│  │ • vendor_id  │                                     │                 │
+│         │ 1                                     │ • house_num  │         │
+│         │                                       │ • floor      │         │
+│         ▼ ∞                                     │ • is_primary │         │
+│  ┌──────────────┐                              │ • is_active  │         │
+│  │   vendors    │                              │ • verification         │
+│  │ ─────────────│                              │   _status    │         │
+│  │ • vendor_id  │                              └──────┬───────┘         │
 │  │   (PK, FK)   │                                     │                 │
-│  │ • business_  │                                     │                 │
+│  │ • business_  │                                     │ ∞               │
 │  │   name       │                                     │                 │
-│  │ • store_addr │                                     │                 │
-│  └──────┬───────┘                                     │                 │
-│         │                                              │                 │
-│         │ 1                                            │                 │
-│         │                                              │                 │
-│         ▼ ∞                                            │                 │
-│  ┌──────────────┐                                     │                 │
-│  │ vendor_      │                                     │                 │
-│  │  services    │                                     │                 │
-│  │ ─────────────│                                     │                 │
-│  │ • vendor_id  │                                     │                 │
-│  │ • service_id │                                     │                 │
-│  │   (FK)       │                                     │                 │
-│  │ • turnaround │                                     │                 │
-│  └──────┬───────┘                                     │                 │
-│         │                                              │                 │
-│         │                                              │                 │
-│         │                                              │ 1               │
-│         │                                              │                 │
-│         ▼                                              ▼                 │
-│  ┌──────────────┐                              ┌──────────────┐         │
-│  │ rate_cards   │                              │  societies   │         │
-│  │ ─────────────│            1            ∞   │ ─────────────│         │
-│  │ • rate_card_id  ◄────────────────────────────┤ • society_id │         │
-│  │ • vendor_id  │                              │   (PK)       │         │
-│  │ • society_id │                              │ • name       │         │
-│  │   (FK)       │                              │ • society_   │         │
-│  │ • is_published                              │   type       │         │
-│  └──────┬───────┘                              │ • total_flats│         │
-│         │                                       │ • total_     │         │
-│         │ 1                                     │   houses     │         │
-│         │                                       └──────┬───────┘         │
-│         ▼ ∞                                            │                 │
-│  ┌──────────────┐                                     │                 │
-│  │ rate_card_   │                                     │ 1               │
-│  │   items      │                                     │                 │
-│  │ ─────────────│                                     ▼ ∞               │
-│  │ • item_id    │                              ┌──────────────┐         │
-│  │ • rate_card_id                              │ society_     │         │
-│  │   (FK)       │                              │  roster      │         │
-│  │ • service_id │                              │ ─────────────│         │
-│  │ • item_name  │                              │ • roster_id  │         │
-│  │ • price      │                              │ • society_id │         │
-│  └──────────────┘                              │   (FK)       │         │
-│                                                  │ • phone      │         │
-│                                                  │ • unit_type  │         │
-│  Note: residents table supports multi-society:  │ • flat_number│         │
-│  - One user can have multiple resident records  │ • house_num  │         │
-│  - Only one is_primary per user                 │ • resident_  │         │
-│  - Only one is_active per user (context)        │   name       │         │
-│  - Supports FLAT and HOUSE unit types           └──────────────┘         │
-│  - Multiple households per house (diff floors)                           │
+│  │ • store_addr │                                     │ 1               │
+│  └──────┬───────┘                                     ▼                 │
+│         │                                       ┌──────────────┐         │
+│         │ 1                                     │  societies   │         │
+│         │                                       │ ─────────────│         │
+│         ▼ ∞                                     │ • society_id │         │
+│  ┌──────────────┐                              │   (PK)       │         │
+│  │ vendor_      │                              │ • name       │         │
+│  │  services    │                              │ • society_   │         │
+│  │ ─────────────│                              │   type       │         │
+│  │ • vendor_id  │                              │ • total_flats│         │
+│  │ • service_id │                              │ • total_     │         │
+│  │   (FK)       │                              │   houses     │         │
+│  │ • turnaround │                              └───┬───┬──────┘         │
+│  └──────┬───────┘                                  │   │                │
+│         │                                      1   │   │ 1              │
+│         │ 1                                   ┌────┘   └────┐           │
+│         │                                     │             │           │
+│         ▼ ∞                                   ▼ ∞           ▼ ∞         │
+│  ┌──────────────┐            ┌────────────────┐     ┌───────────────┐  │
+│  │ rate_cards   │            │ society_       │     │ society_groups│  │
+│  │ ─────────────│            │  roster        │     │ ──────────────│  │
+│  │ • rate_card_id            │ ─────────────  │     │ • group_id(PK)│  │
+│  │ • vendor_id  │            │ • roster_id    │     │ • society_id  │  │
+│  │ • society_id │            │ • society_id   │     │   (FK)        │  │
+│  │   (FK)       │            │   (FK)         │     │ • group_name  │  │
+│  │ • is_published            │ • group_id     │     │ • group_type  │  │
+│  └──────┬───────┘            │   (FK)         │     │ • group_code  │  │
+│         │                     │ • phone        │     │ • total_units │  │
+│         │ 1                   │ • unit_type    │     │ • total_floors│  │
+│         │                     │ • flat_number  │     └───────┬───────┘  │
+│         ▼ ∞                   │ • house_num    │             │          │
+│  ┌──────────────┐            │ • floor        │             │ ∞        │
+│  │ rate_card_   │            └────────────────┘             │          │
+│  │   items      │                                      1    ▼          │
+│  │ ─────────────│                              ┌──────────────────┐    │
+│  │ • item_id    │                              │ vendor_service_  │    │
+│  │ • rate_card_id                              │   areas          │    │
+│  │   (FK)       │      ┌───────────────────────┤ ─────────────────│    │
+│  │ • service_id │      │                       │ • assignment_id  │    │
+│  │ • item_name  │      │ ∞                     │   (PK)           │    │
+│  │ • price      │      │                       │ • vendor_id (FK) │    │
+│  └──────────────┘      │                       │ • society_id(FK) │    │
+│                         │                       │ • assignment_    │    │
+│  ┌──────────────┐      │                       │   type           │    │
+│  │  vendors     │──────┘                       │ • group_id       │    │
+│  │ ─────────────│ 1                            │   (FK, nullable) │    │
+│  │ • vendor_id  │                              │ • is_active      │    │
+│  │   (PK)       │                              └──────────────────┘    │
+│  └──────────────┘                                                      │
+│                                                                          │
+│  **Unified 4-Level Hierarchy:**                                         │
+│  - Society → Groups (Buildings/Phases) → Units (Flats/Houses) → Floors  │
+│  - Single society_groups table for both apartments and layouts          │
+│  - group_type: BUILDING, TOWER, BLOCK, WING, PHASE, SECTION, ZONE      │
+│                                                                          │
+│  **Vendor Assignment (Simplified):**                                    │
+│  - SOCIETY: Vendor serves entire society (all groups)                   │
+│  - GROUP: Vendor assigned to specific group(s) - works for both         │
+│    buildings (apartments) and phases (layouts)                          │
+│  - Residents linked to groups via group_id                              │
+│  - Default vendor filtering based on resident's group                   │
+│  - Residents can override to view all vendors in society                │
+│                                                                          │
+│  **Notes:**                                                              │
+│  - residents table supports multi-society (one user, multiple residences)│
+│  - Only one is_primary per user, only one is_active per user (context)  │
+│  - Supports FLAT and HOUSE unit types uniformly via group_id            │
+│  - Multiple households per unit supported via different floor values    │
+│  - society_roster includes group_id for instant verification            │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 
@@ -800,6 +816,228 @@ CREATE INDEX idx_vendor_societies_vendor ON vendor_societies(vendor_id);
 CREATE INDEX idx_vendor_societies_society ON vendor_societies(society_id);
 CREATE INDEX idx_vendor_societies_status ON vendor_societies(approval_status);
 ```
+
+---
+
+### 4.6 Society Groups Table (Unified 4-Level Hierarchy)
+
+**Purpose:** Unified grouping structure supporting 4-level hierarchy: Society → Groups → Units → Floors
+
+```sql
+CREATE TABLE society_groups (
+  group_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  society_id INTEGER NOT NULL REFERENCES societies(society_id) ON DELETE CASCADE,
+  group_name VARCHAR(100) NOT NULL,
+  group_code VARCHAR(20),
+  group_type VARCHAR(20) NOT NULL
+    CHECK (group_type IN ('BUILDING', 'BLOCK', 'TOWER', 'WING', 'PHASE', 'SECTION', 'ZONE')),
+  description TEXT,
+
+  -- Stats (applicable based on society_type)
+  total_units INTEGER,      -- Total flats for apartments OR total houses for layouts
+  total_floors INTEGER,     -- For buildings/towers
+
+  -- Status
+  is_active BOOLEAN DEFAULT true,
+
+  -- Metadata
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  created_by UUID REFERENCES users(user_id),
+
+  UNIQUE(society_id, group_name)
+);
+
+-- Indexes
+CREATE INDEX idx_groups_society ON society_groups(society_id);
+CREATE INDEX idx_groups_type ON society_groups(group_type);
+CREATE INDEX idx_groups_active ON society_groups(is_active) WHERE is_active = true;
+```
+
+**Notes:**
+- **Unified table** for both apartment and layout societies
+- **Flexible naming:** Supports "Building", "Phase", "Tower", "Block", "Wing", "Section", "Zone"
+- **For Apartments:** `group_type` = 'BUILDING', 'BLOCK', 'TOWER', or 'WING'
+- **For Layouts:** `group_type` = 'PHASE', 'SECTION', or 'ZONE'
+- `total_units`: Number of flats (apartments) OR houses (layouts) in this group
+- `total_floors`: Only applicable for multi-story buildings
+
+**4-Level Hierarchy Examples:**
+
+**Apartments:**
+```
+Society → Building A → Flat A-101 → Floor 1
+Society → Building A → Flat A-101 → Floor 2
+Society → Tower B → Flat B-205 → (no floors - single household)
+```
+
+**Layouts:**
+```
+Society → Phase 1 → House #101 → Ground Floor
+Society → Phase 1 → House #101 → First Floor
+Society → Phase 2 → House #205 → (no floors - single household)
+```
+
+**Example Data:**
+```sql
+-- Apartment society
+INSERT INTO society_groups (society_id, group_name, group_code, group_type, total_units, total_floors)
+VALUES
+  (1, 'Building A', 'A', 'BUILDING', 60, 15),
+  (1, 'Tower B', 'B', 'TOWER', 80, 20);
+
+-- Layout society
+INSERT INTO society_groups (society_id, group_name, group_code, group_type, total_units)
+VALUES
+  (2, 'Phase 1', 'P1', 'PHASE', 50),
+  (2, 'East Section', 'ES', 'SECTION', 35);
+```
+
+---
+
+### 4.7 Vendor Service Area Assignments Table
+
+**Purpose:** Define which groups (buildings/phases) a vendor serves (simplified with unified groups)
+
+```sql
+CREATE TABLE vendor_service_areas (
+  assignment_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  vendor_id UUID NOT NULL REFERENCES vendors(vendor_id) ON DELETE CASCADE,
+  society_id INTEGER NOT NULL REFERENCES societies(society_id) ON DELETE CASCADE,
+
+  -- Assignment level
+  assignment_type VARCHAR(20) NOT NULL
+    CHECK (assignment_type IN ('SOCIETY', 'GROUP')),
+
+  -- Reference ID (nullable when assignment_type = 'SOCIETY')
+  group_id INTEGER REFERENCES society_groups(group_id) ON DELETE CASCADE,
+
+  -- Status
+  is_active BOOLEAN DEFAULT true,
+
+  -- Metadata
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  assigned_by UUID REFERENCES users(user_id),
+
+  -- Constraints
+  CHECK (
+    (assignment_type = 'SOCIETY' AND group_id IS NULL) OR
+    (assignment_type = 'GROUP' AND group_id IS NOT NULL)
+  ),
+
+  -- Prevent duplicate assignments
+  UNIQUE(vendor_id, society_id, assignment_type, group_id)
+);
+
+-- Indexes
+CREATE INDEX idx_vendor_areas_vendor ON vendor_service_areas(vendor_id);
+CREATE INDEX idx_vendor_areas_society ON vendor_service_areas(society_id);
+CREATE INDEX idx_vendor_areas_group ON vendor_service_areas(group_id) WHERE group_id IS NOT NULL;
+CREATE INDEX idx_vendor_areas_type ON vendor_service_areas(assignment_type);
+CREATE INDEX idx_vendor_areas_active ON vendor_service_areas(is_active) WHERE is_active = true;
+
+-- Composite index for vendor lookup in a society
+CREATE INDEX idx_vendor_areas_lookup ON vendor_service_areas(society_id, vendor_id, is_active)
+  WHERE is_active = true;
+```
+
+**Notes:**
+- **Simplified Assignment Types:**
+  - `SOCIETY`: Vendor serves entire society (all groups)
+  - `GROUP`: Vendor assigned to specific group(s) - works for both buildings and phases
+- One vendor can have multiple group assignments (e.g., Building A + Building B)
+- Used for default vendor filtering in resident app
+- Residents can override and view all vendors if needed
+
+**Example Assignments:**
+```sql
+-- Vendor serves entire society
+INSERT INTO vendor_service_areas (vendor_id, society_id, assignment_type)
+VALUES ('vendor-uuid', 1, 'SOCIETY');
+
+-- Vendor serves specific groups (works for both buildings and phases)
+INSERT INTO vendor_service_areas (vendor_id, society_id, assignment_type, group_id)
+VALUES
+  ('vendor-uuid', 1, 'GROUP', 1),  -- Building A
+  ('vendor-uuid', 1, 'GROUP', 2);  -- Building B
+
+-- Vendor serves specific phases in layout
+INSERT INTO vendor_service_areas (vendor_id, society_id, assignment_type, group_id)
+VALUES ('vendor-uuid', 2, 'GROUP', 5);  -- Phase 1
+```
+
+---
+
+### 4.8 Updated Residents Table for Group References
+
+**Purpose:** Link residents to their groups (buildings or phases) in the 4-level hierarchy
+
+Update the residents table schema to include group reference:
+
+```sql
+-- Add new column to residents table
+ALTER TABLE residents
+ADD COLUMN group_id INTEGER REFERENCES society_groups(group_id) ON DELETE SET NULL;
+
+-- Add check constraint to ensure group_id is set for both FLAT and HOUSE
+ALTER TABLE residents
+ADD CONSTRAINT residents_group_check CHECK (
+  group_id IS NOT NULL
+);
+
+-- Add index
+CREATE INDEX idx_residents_group ON residents(group_id);
+```
+
+**Notes:**
+- **4-Level Hierarchy:** Society → Group → Unit (flat/house) → Floor (optional)
+- `group_id`: References the building (for apartments) or phase (for layouts)
+- `flat_number` or `house_number`: The unit within the group
+- `floor`: Optional - for multi-floor households
+- Works uniformly for both apartment and layout societies
+
+**Example Data:**
+```sql
+-- Apartment resident
+INSERT INTO residents (user_id, society_id, group_id, unit_type, flat_number, floor)
+VALUES ('user-uuid', 1, 1, 'FLAT', 'A-101', 1);
+-- Represents: Society 1 → Building A (group_id: 1) → Flat A-101 → Floor 1
+
+-- Layout resident
+INSERT INTO residents (user_id, society_id, group_id, unit_type, house_number, floor)
+VALUES ('user-uuid', 2, 5, 'HOUSE', '101', 0);
+-- Represents: Society 2 → Phase 1 (group_id: 5) → House 101 → Ground Floor
+```
+
+---
+
+### 4.9 Updated Society Roster Table for Group References
+
+**Purpose:** Include group information in pre-approved roster (4-level hierarchy)
+
+Update the society_roster table schema:
+
+```sql
+-- Add new column to society_roster table
+ALTER TABLE society_roster
+ADD COLUMN group_id INTEGER REFERENCES society_groups(group_id) ON DELETE SET NULL;
+
+-- Add check constraint
+ALTER TABLE society_roster
+ADD CONSTRAINT roster_group_check CHECK (
+  group_id IS NOT NULL
+);
+
+-- Add index
+CREATE INDEX idx_roster_group ON society_roster(group_id);
+```
+
+**Notes:**
+- **Unified approach:** Works for both apartments and layouts
+- `group_id`: References building (apartments) or phase (layouts)
+- Used for instant resident verification during onboarding
+- Matches the same structure as the residents table
 
 ---
 

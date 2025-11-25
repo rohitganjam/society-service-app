@@ -11,6 +11,13 @@
 **What they do:**
 - Browse service categories: Laundry (live), Vehicle Services, Home Services, Personal Care (coming soon)
 - Within each category, browse service providers and their offerings
+- **Vendor Filtering & Discovery:**
+  - **Default view:** See vendors assigned to their building/block/phase (filtered automatically)
+  - **Option to view all:** Can manually choose to see all society vendors if needed
+  - **Use cases for viewing all vendors:**
+    - Emergency situations requiring immediate service
+    - Specific vendor preferences or familiarity
+    - Higher quality or specialty services from other areas
 - **Create separate orders per category** (one laundry order, one vehicle order, etc.)
 - **Within each order**, can mix multiple service types from that category:
   - Laundry order: ironing + washing + dry cleaning items together
@@ -23,7 +30,7 @@
 - Rate and review service providers per service type
 - Report issues/disputes if needed
 
-**Key flow:** Browse categories → Select provider → Add items to cart (within category) → Schedule pickup → Track per service → Pay → Review
+**Key flow:** Browse categories → Filter vendors (default: assigned) → Select provider → Add items to cart (within category) → Schedule pickup → Track per service → Pay → Review
 
 **Example**:
 - Creates **Laundry Order #123**: 5 shirts (ironing) + 2 suits (dry cleaning) = ₹350
@@ -41,6 +48,10 @@
   - **Home Services**: Gardening, Plumbing, Electrical, Pest Control
   - **Personal Care**: Barber, Salon, Spa services
 - Can offer services across multiple categories (e.g., runs laundry + car wash business)
+- **Service Area Assignment:**
+  - Society admin assigns vendor to specific service areas (buildings, blocks, phases, or entire society)
+  - Assignment serves as default for which residents see this vendor
+  - Residents can still choose to order from vendor outside default area
 - Set up separate rate cards with pricing for each service type
 - **Define completion workflow per service type**:
   - **Laundry/Ironing**: Pickup → Count → Iron → Ready → Deliver
@@ -48,14 +59,17 @@
   - **Vehicle/Car Wash**: Schedule → Arrive → Wash → Vacuum → Polish → Complete
   - **Home/Gardening**: Schedule → Arrive → Trim Plants → Mow Lawn → Clean → Complete
   - **Home/Plumbing**: Schedule → Arrive → Diagnose → Fix → Test → Complete
-- Receive order notifications grouped by category and service type
+- **Order Management:**
+  - **Default view:** See all assigned requests from their designated service areas
+  - **Filter option:** Can filter by building/phase/service type if needed
+  - Receive order notifications grouped by category and service type
 - View dashboard with today's tasks organized by category
 - Update status independently for each service type within an order
 - Complete each service according to its specific workflow
 - Track earnings and settlements by category and service type
 - Respond to customer disputes
 
-**Key flow:** Register → Select categories → Setup rate cards → Define workflows → Receive orders → Execute per service workflow → Get paid
+**Key flow:** Register → Select categories → Get assigned to service areas → Setup rate cards → Define workflows → Receive orders (from assigned areas) → Execute per service workflow → Get paid
 
 **Example workflow tracking**:
 ```
@@ -97,6 +111,11 @@ Vehicle Order #124 (Mixed):
 
 **What they do:**
 - Approve/reject vendor registrations for their society (across all categories)
+- **Assign vendors to service areas** within the society:
+  - Assign to **entire society** (all buildings/blocks and phases)
+  - Assign to **specific building(s)/block(s)**
+  - Assign to **specific phase(s)** (groups of households within layouts)
+  - Can assign one vendor to multiple service areas
 - Upload resident rosters (phone numbers + flat numbers) for instant verification
 - Monitor all orders in their society (laundry, vehicle, home services - all categories)
 - View order completion by service type workflow
@@ -105,7 +124,13 @@ Vehicle Order #124 (Mixed):
 - View analytics: completion rates, average time per service type workflow
 - Track vendor performance by category and service type
 
-**Key flow:** Approve vendors → Manage rosters → Monitor activity → Resolve disputes
+**Key flow:** Approve vendors → Assign to service areas → Manage rosters → Monitor activity → Resolve disputes
+
+**Vendor Assignment Examples:**
+- Vendor A: Assigned to entire society (serves all residents)
+- Vendor B: Assigned to Building 1 and Building 2 only
+- Vendor C: Assigned to Phase 1 households in independent house layout
+- Vendor D: Assigned to Building 3, Floor 1-5 only
 
 ---
 
@@ -138,18 +163,125 @@ Vehicle Order #124 (Mixed):
 
 ---
 
+## 🏗️ **Society Organizational Structure**
+
+### Unified 4-Level Hierarchy
+
+All societies follow a consistent 4-level hierarchy, regardless of whether they're apartments or layouts:
+
+```
+Level 1: Society (Top Level)
+   ↓
+Level 2: Groups (Buildings/Phases/Towers/Sections)
+   ↓
+Level 3: Units (Flats/Houses)
+   ↓
+Level 4: Floors (Optional - for multi-floor households)
+```
+
+### Structure Types
+
+**1. Apartment Complexes:**
+```
+Example: "Green Valley Apartments"
+Society → Buildings → Flats → Floors
+
+├── Building A (Group)
+│   ├── Flat A-101 (Unit)
+│   │   └── Floor 1 (Optional - if duplex/triplex)
+│   ├── Flat A-102 (Unit - single floor)
+│   └── ...
+├── Tower B (Group)
+│   ├── Flat B-101 (Unit)
+│   └── ...
+└── Block C (Group)
+```
+
+**2. Independent House Layouts:**
+```
+Example: "Sunrise Villas"
+Society → Phases → Houses → Floors
+
+├── Phase 1 (Group)
+│   ├── House #101 (Unit)
+│   │   ├── Ground Floor (Floor 0)
+│   │   └── First Floor (Floor 1)
+│   ├── House #102 (Unit - single floor)
+│   └── ...
+├── Phase 2 (Group)
+│   ├── House #201 (Unit)
+│   └── ...
+└── East Section (Group)
+```
+
+**3. Mixed Grouping Types:**
+```
+Example: "Metro Heights" (Flexible naming)
+Society → Mixed Groups → Units → Floors
+
+├── North Wing (Group)
+│   └── Flat NW-101 (Unit)
+├── South Tower (Group)
+│   └── Flat ST-205 (Unit)
+└── Garden Villas (Group)
+    └── Villa #5 (Unit)
+```
+
+**Group Types Supported:**
+- BUILDING, BLOCK, TOWER, WING (for apartments)
+- PHASE, SECTION, ZONE (for layouts)
+- Flexible naming allows society admins to use terminology that matches their society
+
+### Vendor Assignment by Service Areas
+
+Vendors can be assigned at different levels of the hierarchy:
+
+- **Society-wide:** Vendor serves all groups and units across the entire society
+- **Group-specific:** Vendor assigned to one or more groups (buildings/phases/towers/etc.)
+- **Multi-group:** Vendor can serve multiple groups simultaneously, even with different group types
+
+**Example Vendor Assignments:**
+```
+"QuickWash Laundry"
+├── Assigned to: Building A, Tower B (multiple groups)
+└── Default visibility: Residents in Building A & Tower B see this vendor first
+
+"Express Cleaners"
+├── Assigned to: Phase 1, Phase 2 (multiple phases)
+└── Default visibility: Phase 1 & 2 residents see this vendor first
+
+"Premium Services"
+├── Assigned to: Entire Society
+└── Default visibility: All residents see this vendor
+```
+
+**Resident Filtering Logic:**
+1. **Default:** Resident in Building A sees vendors assigned to Building A or entire society
+2. **Override:** Resident can toggle to see ALL vendors in society (for emergencies or preferences)
+
+**Vendor Order View Logic:**
+1. **Default:** Vendor sees all orders from assigned groups
+2. **Filter:** Vendor can filter by group/service type as needed
+
+---
+
 ## 🔄 **Key Unique Features**
 
-1. **Separate orders per category**: Can't mix laundry with car wash - each category is a separate order
-2. **Mixed services within category**: One laundry order can have ironing + washing + dry cleaning items
-3. **Independent workflow tracking**: Each service type follows its own completion steps
-4. **Service-wise progress**: Ironing ready in 2 days while dry cleaning still processing (5 days)
-5. **Direct payments**: Residents pay vendors directly per order (UPI/cash), not through platform
-6. **Society subscription**: Societies pay platform monthly fee (₹5k-₹20k), vendors keep 100% of earnings
-7. **Multi-category platform**: Built day 1 to support all categories, activate when ready
-8. **Workflow flexibility**: Each service type can have unique completion steps
-9. **Cross-category vendors**: One vendor can serve multiple categories with different workflows
-10. **Zero rebuild needed**: Adding new categories/services = configuration, not development
+1. **Unified 4-level hierarchy**: Consistent structure for all societies (Society → Groups → Units → Floors)
+2. **Flexible group types**: Support BUILDING, TOWER, BLOCK, WING, PHASE, SECTION, ZONE naming
+3. **Smart vendor assignment**: Assign vendors to entire society or specific groups
+4. **Intelligent vendor filtering**: Residents see assigned vendors by default, can view all if needed
+5. **Optional floor support**: Households can have multiple floors as actual residential units (duplex, triplex, etc.)
+6. **Separate orders per category**: Can't mix laundry with car wash - each category is a separate order
+7. **Mixed services within category**: One laundry order can have ironing + washing + dry cleaning items
+8. **Independent workflow tracking**: Each service type follows its own completion steps
+9. **Service-wise progress**: Ironing ready in 2 days while dry cleaning still processing (5 days)
+10. **Direct payments**: Residents pay vendors directly per order (UPI/cash), not through platform
+11. **Society subscription**: Societies pay platform monthly fee (₹5k-₹20k), vendors keep 100% of earnings
+12. **Multi-category platform**: Built day 1 to support all categories, activate when ready
+13. **Workflow flexibility**: Each service type can have unique completion steps
+14. **Cross-category vendors**: One vendor can serve multiple categories with different workflows
+15. **Zero rebuild needed**: Adding new categories/services = configuration, not development
 
 ---
 
