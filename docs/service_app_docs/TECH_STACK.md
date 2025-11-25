@@ -58,8 +58,10 @@
 | **Authentication** | Supabase Auth | Supabase | User management |
 | **Payments** | Razorpay | - | UPI/Cash tracking |
 | **Notifications** | Firebase Cloud Messaging | - | Push notifications |
+| **Email** | SendGrid/Resend | - | Transactional emails |
+| **Monitoring** | Sentry | - | Error tracking |
 
-**Total Platforms to Manage:** 3 (Vercel, Supabase, Razorpay)
+**Total Platforms to Manage:** 5 (Vercel, Supabase, Razorpay, Email Provider, Sentry)
 
 ---
 
@@ -154,6 +156,12 @@
 │  │  Razorpay    │  │     FCM      │  │    Twilio/MSG91      │  │
 │  │  Payments    │  │Push Notifs   │  │        SMS           │  │
 │  └──────────────┘  └──────────────┘  └──────────────────────┘  │
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐                            │
+│  │  SendGrid/   │  │    Sentry    │                            │
+│  │  Resend      │  │  Monitoring  │                            │
+│  │  Email       │  │              │                            │
+│  └──────────────┘  └──────────────┘                            │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -302,7 +310,11 @@ lib/
     "express-rate-limit": "^7.1.5",
 
     "winston": "^3.11.0",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+
+    "resend": "^3.0.0",
+    "@sentry/node": "^7.91.0",
+    "@sentry/profiling-node": "^1.3.0"
   }
 }
 ```
@@ -642,7 +654,9 @@ export const getSocieties = async () => {
     "SUPABASE_SERVICE_KEY": "@supabase-service-key",
     "JWT_SECRET": "@jwt-secret",
     "RAZORPAY_KEY_ID": "@razorpay-key-id",
-    "RAZORPAY_KEY_SECRET": "@razorpay-key-secret"
+    "RAZORPAY_KEY_SECRET": "@razorpay-key-secret",
+    "RESEND_API_KEY": "@resend-api-key",
+    "SENTRY_DSN": "@sentry-dsn"
   }
 }
 ```
@@ -1812,6 +1826,493 @@ serve(async (req) => {
 });
 ```
 
+### 9.4 Email Service (SendGrid / Resend)
+
+**Why Email is Needed:**
+- Vendor registration approval/rejection notifications
+- Society subscription invoices (monthly)
+- Order confirmation receipts (optional, backup to SMS/push)
+- Payment overdue reminders for society admins
+- Dispute notifications to all parties
+- Admin reports and analytics summaries
+
+**Recommended Provider: Resend**
+- Developer-friendly API
+- Excellent deliverability
+- React Email template support
+- Free tier: 100 emails/day (3000/month)
+- Paid: $20/month for 50k emails
+
+**Alternative: SendGrid**
+- More established, larger scale
+- Free tier: 100 emails/day
+- More complex setup but very reliable
+
+**Backend Integration (Resend):**
+
+```typescript
+// src/services/email-service.ts
+import { Resend } from 'resend';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+export class EmailService {
+  /**
+   * Send vendor approval notification
+   */
+  static async sendVendorApproval(
+    vendorEmail: string,
+    vendorName: string,
+    societyName: string
+  ) {
+    try {
+      await resend.emails.send({
+        from: 'noreply@yourapp.com',
+        to: vendorEmail,
+        subject: `Vendor Registration Approved - ${societyName}`,
+        html: `
+          <h2>Congratulations ${vendorName}!</h2>
+          <p>Your vendor registration for <strong>${societyName}</strong> has been approved.</p>
+          <p>You can now start receiving orders from residents.</p>
+          <p>Login to your vendor app to get started.</p>
+        `
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Email send failed:', error);
+      // Don't throw - email is non-critical
+      return { success: false, error };
+    }
+  }
+
+  /**
+   * Send vendor rejection notification
+   */
+  static async sendVendorRejection(
+    vendorEmail: string,
+    vendorName: string,
+    societyName: string,
+    reason?: string
+  ) {
+    await resend.emails.send({
+      from: 'noreply@yourapp.com',
+      to: vendorEmail,
+      subject: `Vendor Registration Update - ${societyName}`,
+      html: `
+        <h2>Hello ${vendorName},</h2>
+        <p>Thank you for your interest in serving <strong>${societyName}</strong>.</p>
+        <p>Unfortunately, your registration was not approved at this time.</p>
+        ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+        <p>You can contact the society admin for more information.</p>
+      `
+    });
+  }
+
+  /**
+   * Send monthly subscription invoice to society admin
+   */
+  static async sendSubscriptionInvoice(
+    adminEmail: string,
+    societyName: string,
+    invoiceData: {
+      invoice_number: string;
+      amount: number;
+      due_date: string;
+      billing_period: string;
+    }
+  ) {
+    await resend.emails.send({
+      from: 'billing@yourapp.com',
+      to: adminEmail,
+      subject: `Invoice #${invoiceData.invoice_number} - ${societyName}`,
+      html: `
+        <h2>Monthly Subscription Invoice</h2>
+        <p><strong>Society:</strong> ${societyName}</p>
+        <p><strong>Invoice Number:</strong> ${invoiceData.invoice_number}</p>
+        <p><strong>Billing Period:</strong> ${invoiceData.billing_period}</p>
+        <p><strong>Amount:</strong> ₹${invoiceData.amount}</p>
+        <p><strong>Due Date:</strong> ${invoiceData.due_date}</p>
+        <br>
+        <p>Please make payment to avoid service interruption.</p>
+        <p>Payment can be made via bank transfer or UPI.</p>
+      `
+    });
+  }
+
+  /**
+   * Send payment overdue reminder
+   */
+  static async sendPaymentOverdueReminder(
+    adminEmail: string,
+    societyName: string,
+    invoiceNumber: string,
+    overdueAmount: number,
+    daysPastDue: number
+  ) {
+    await resend.emails.send({
+      from: 'billing@yourapp.com',
+      to: adminEmail,
+      subject: `Payment Overdue - Invoice #${invoiceNumber}`,
+      html: `
+        <h2>Payment Reminder</h2>
+        <p>Dear ${societyName} Admin,</p>
+        <p>Your invoice #${invoiceNumber} is <strong>${daysPastDue} days overdue</strong>.</p>
+        <p><strong>Amount Due:</strong> ₹${overdueAmount}</p>
+        <p>Please make payment immediately to avoid service suspension.</p>
+        <p>If payment has already been made, please ignore this reminder.</p>
+      `
+    });
+  }
+
+  /**
+   * Send dispute notification
+   */
+  static async sendDisputeNotification(
+    recipientEmail: string,
+    recipientName: string,
+    orderNumber: string,
+    disputeDetails: string
+  ) {
+    await resend.emails.send({
+      from: 'support@yourapp.com',
+      to: recipientEmail,
+      subject: `Dispute Raised - Order #${orderNumber}`,
+      html: `
+        <h2>Dispute Notification</h2>
+        <p>Hello ${recipientName},</p>
+        <p>A dispute has been raised for order <strong>#${orderNumber}</strong>.</p>
+        <p><strong>Details:</strong> ${disputeDetails}</p>
+        <p>Please login to your app to respond to this dispute.</p>
+      `
+    });
+  }
+
+  /**
+   * Send order confirmation (optional, as backup to push/SMS)
+   */
+  static async sendOrderConfirmation(
+    residentEmail: string,
+    orderNumber: string,
+    orderDetails: {
+      vendor_name: string;
+      total: number;
+      pickup_time: string;
+      expected_delivery: string;
+    }
+  ) {
+    await resend.emails.send({
+      from: 'orders@yourapp.com',
+      to: residentEmail,
+      subject: `Order Confirmation - #${orderNumber}`,
+      html: `
+        <h2>Order Confirmed!</h2>
+        <p><strong>Order Number:</strong> ${orderNumber}</p>
+        <p><strong>Service Provider:</strong> ${orderDetails.vendor_name}</p>
+        <p><strong>Total:</strong> ₹${orderDetails.total}</p>
+        <p><strong>Pickup Time:</strong> ${orderDetails.pickup_time}</p>
+        <p><strong>Expected Delivery:</strong> ${orderDetails.expected_delivery}</p>
+        <br>
+        <p>Track your order in the app for real-time updates.</p>
+      `
+    });
+  }
+}
+```
+
+**Usage in Backend API:**
+
+```typescript
+// api/v1/admin/vendors/approve.ts
+import { EmailService } from '@/services/email-service';
+
+export default async (req: Request, res: Response) => {
+  const { vendor_id } = req.params;
+
+  // Approve vendor in database
+  const vendor = await VendorRepository.approveVendor(vendor_id);
+
+  // Send email notification (non-blocking)
+  EmailService.sendVendorApproval(
+    vendor.email,
+    vendor.business_name,
+    vendor.society_name
+  ).catch(err => console.error('Email failed:', err));
+
+  res.json({ success: true });
+};
+```
+
+**Edge Function: Monthly Invoice Email (Cron Job)**
+
+```typescript
+// supabase/functions/send-monthly-invoices/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+serve(async (req) => {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+
+  // Get all pending invoices
+  const { data: invoices } = await supabase
+    .from('subscription_invoices')
+    .select(`
+      *,
+      society_subscriptions(
+        society_id,
+        societies(name, admin_email)
+      )
+    `)
+    .eq('status', 'PENDING')
+    .gte('due_date', new Date().toISOString());
+
+  for (const invoice of invoices) {
+    // Send email via Resend API
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${Deno.env.get('RESEND_API_KEY')}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'billing@yourapp.com',
+        to: invoice.society_subscriptions.societies.admin_email,
+        subject: `Invoice #${invoice.invoice_number}`,
+        html: `Invoice details...`
+      })
+    });
+  }
+
+  return new Response(JSON.stringify({ sent: invoices.length }));
+});
+```
+
+**Cost Estimate:**
+```
+Resend Free Tier: 3,000 emails/month (sufficient for start)
+
+Expected usage (100 societies):
+- Vendor approvals: ~50/month
+- Monthly invoices: 100/month
+- Payment reminders: ~20/month
+- Disputes: ~30/month
+- Order confirmations (optional): ~2,000/month
+
+Total: ~2,200 emails/month (within free tier)
+
+At scale (500 societies):
+- Total: ~10,000 emails/month
+- Cost: $20/month (Resend paid plan)
+```
+
+### 9.5 Error Tracking & Monitoring (Sentry)
+
+**Why Sentry:**
+- **Real-time error tracking** across all platforms
+- **Stack traces** with source maps
+- **User context** (which user hit the error)
+- **Release tracking** (which deployment caused issues)
+- **Performance monitoring** (slow API endpoints)
+- **Alerts** via email/Slack when critical errors occur
+
+**Backend Integration:**
+
+```typescript
+// src/utils/sentry.ts
+import * as Sentry from '@sentry/node';
+import { ProfilingIntegration } from '@sentry/profiling-node';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  integrations: [
+    new ProfilingIntegration(),
+  ],
+  tracesSampleRate: 0.1, // 10% of requests tracked
+  profilesSampleRate: 0.1,
+});
+
+// Express middleware
+export const sentryRequestHandler = Sentry.Handlers.requestHandler();
+export const sentryErrorHandler = Sentry.Handlers.errorHandler();
+```
+
+```typescript
+// api/index.ts (Express app)
+import express from 'express';
+import { sentryRequestHandler, sentryErrorHandler } from '@/utils/sentry';
+
+const app = express();
+
+// Sentry must be first middleware
+app.use(sentryRequestHandler);
+
+// ... your routes
+
+// Sentry error handler must be before other error middleware
+app.use(sentryErrorHandler);
+
+// Global error handler
+app.use((err, req, res, next) => {
+  // Sentry already captured the error
+  console.error(err);
+  res.status(500).json({
+    success: false,
+    error: { message: 'Internal server error' }
+  });
+});
+```
+
+**Capture Custom Errors:**
+
+```typescript
+// src/services/order-service.ts
+import * as Sentry from '@sentry/node';
+
+export class OrderService {
+  static async createOrder(userId: string, orderData: any) {
+    try {
+      // Order creation logic
+      const order = await OrderRepository.createOrder(orderData);
+      return order;
+    } catch (error) {
+      // Capture error with context
+      Sentry.captureException(error, {
+        tags: {
+          service: 'order-creation',
+          user_id: userId
+        },
+        extra: {
+          order_data: orderData
+        },
+        level: 'error'
+      });
+
+      throw error;
+    }
+  }
+}
+```
+
+**Flutter Mobile App Integration:**
+
+```yaml
+# pubspec.yaml
+dependencies:
+  sentry_flutter: ^7.14.0
+```
+
+```dart
+// lib/main.dart
+import 'package:sentry_flutter/sentry_flutter.dart';
+
+Future<void> main() async {
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = 'YOUR_SENTRY_DSN';
+      options.environment = 'production';
+      options.tracesSampleRate = 0.1;
+    },
+    appRunner: () => runApp(MyApp()),
+  );
+}
+
+// Capture errors manually
+try {
+  await createOrder(orderData);
+} catch (error, stackTrace) {
+  await Sentry.captureException(
+    error,
+    stackTrace: stackTrace,
+    hint: Hint.withMap({
+      'order_data': orderData,
+      'user_id': userId,
+    }),
+  );
+
+  // Show error to user
+  showErrorDialog(error.toString());
+}
+```
+
+**Next.js Admin Web Integration:**
+
+```bash
+npm install @sentry/nextjs
+npx @sentry/wizard@latest -i nextjs
+```
+
+```typescript
+// sentry.client.config.ts
+import * as Sentry from '@sentry/nextjs';
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  tracesSampleRate: 0.1,
+
+  // Replay sessions for debugging
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1.0,
+});
+```
+
+**Supabase Edge Functions:**
+
+```typescript
+// supabase/functions/_shared/sentry.ts
+import * as Sentry from 'https://deno.land/x/sentry/index.mjs';
+
+Sentry.init({
+  dsn: Deno.env.get('SENTRY_DSN'),
+  environment: 'production',
+});
+
+export const captureEdgeFunctionError = (error: Error, context?: any) => {
+  Sentry.captureException(error, {
+    tags: { runtime: 'deno-edge' },
+    extra: context,
+  });
+};
+```
+
+**Cost Estimate:**
+```
+Sentry Pricing:
+- Developer (Free): 5,000 errors/month, 1 user
+- Team ($26/month): 50,000 errors/month, unlimited users
+- Business ($80/month): 500,000 errors/month
+
+Expected usage:
+- Early stage: <5,000 errors/month (FREE)
+- Growth: 10,000-50,000 errors/month ($26/month)
+
+Recommended: Start with free tier, upgrade to Team when needed
+```
+
+**Sentry Alerts Configuration:**
+
+```yaml
+# .sentryclirc
+[alerts]
+- name: Critical API Errors
+  conditions:
+    - event.level: error
+    - event.tags.severity: critical
+  actions:
+    - email: team@yourapp.com
+    - slack: #alerts-channel
+
+- name: High Error Rate
+  conditions:
+    - event.frequency: >100/hour
+  actions:
+    - email: oncall@yourapp.com
+```
+
 ---
 
 ## 10. Deployment Strategy
@@ -2295,6 +2796,8 @@ Supabase: $25
 Razorpay: $6
 FCM: $0
 SMS: $5
+Email (Resend): $0 (free tier, 3k/month)
+Sentry: $0 (free tier, 5k errors/month)
 Domain: $1
 -----------
 Total: $57/month (~₹4,750/month)
@@ -2306,9 +2809,11 @@ Vercel: $20 (same)
 Supabase: $50 (Pro+ for more database/bandwidth)
 Razorpay: $30 (more subscription payments)
 SMS: $20 (more OTPs)
+Email (Resend): $20 (50k emails)
+Sentry: $26 (error tracking)
 Domain: $1
 -----------
-Total: $121/month (~₹10,000/month)
+Total: $167/month (~₹14,000/month)
 ```
 
 **Revenue vs Cost:**
@@ -2318,8 +2823,8 @@ Infrastructure cost: ₹5k/month
 Profit margin: 99%
 
 500 societies @ ₹10k avg = ₹50L/month revenue
-Infrastructure cost: ₹10k/month
-Profit margin: 98%
+Infrastructure cost: ₹14k/month
+Profit margin: 97%
 ```
 
 ### 12.2 Cost Optimization
@@ -2330,6 +2835,8 @@ Profit margin: 98%
 3. **Storage:** Compress images before upload, use CDN
 4. **SMS:** Implement rate limiting on OTP requests
 5. **Edge Functions:** Use cron jobs instead of realtime triggers where possible
+6. **Email:** Batch non-urgent emails, use free tier efficiently
+7. **Sentry:** Filter out non-critical errors, use sampling for performance tracking
 
 ---
 
@@ -2529,6 +3036,8 @@ ListView.builder(
 | **Hosting** | Vercel | Backend + Web |
 | **Payments** | Razorpay | Payment gateway |
 | **Notifications** | Firebase FCM | Push notifications |
+| **Email** | SendGrid/Resend | Transactional emails |
+| **Monitoring** | Sentry | Error tracking |
 
 ### Key Architecture Decisions
 
