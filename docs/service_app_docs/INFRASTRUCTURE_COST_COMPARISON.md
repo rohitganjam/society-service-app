@@ -77,7 +77,7 @@
 ### 2.2 Scale Assumptions
 
 **Launch Phase (0-6 months):**
-- 50-100 societies
+- 5-10 societies
 - ~5,000 users (residents + vendors)
 - ~10,000 API requests/day
 - ~2,000 orders/week
@@ -85,7 +85,7 @@
 - ~5,000 SMS/month (OTPs)
 
 **Growth Phase (6-18 months):**
-- 500 societies
+- 50-100 societies
 - ~25,000 users
 - ~50,000 API requests/day
 - ~10,000 orders/week
@@ -93,7 +93,7 @@
 - ~25,000 SMS/month
 
 **Mature Phase (18+ months):**
-- 1,000+ societies
+- 100+ societies
 - ~50,000+ users
 - ~100,000+ API requests/day
 - ~20,000+ orders/week
@@ -191,7 +191,7 @@
 
 ### 3.3 Cost Breakdown
 
-#### Launch Phase (100 societies, 5k users, 10k requests/day)
+#### Launch Phase (10 societies, 5k users, 10k requests/day)
 
 | Service | Monthly Cost | Notes |
 |---------|-------------|-------|
@@ -204,7 +204,9 @@
 | Sentry Monitoring | $0 | Free: 5k errors/month |
 | **TOTAL** | **$47-52/month** | **₹3,920-4,340/month** |
 
-#### Growth Phase (500 societies, 25k users, 50k requests/day)
+We can also start with the free Supabase plan and upgrade once we cross 5 societies, or 500MB storage.
+
+#### Growth Phase (50 societies, 25k users, 50k requests/day)
 
 | Service | Monthly Cost | Notes |
 |---------|-------------|-------|
@@ -359,7 +361,7 @@
 
 ### 4.3 Cost Breakdown
 
-#### Launch Phase (100 societies, 5k users, 10k requests/day)
+#### Launch Phase (10 societies, 5k users, 10k requests/day)
 
 | Service | Monthly Cost | Notes |
 |---------|-------------|-------|
@@ -374,7 +376,7 @@
 | Sentry | $0 | Free: 5k errors/month |
 | **TOTAL** | **$12-17/month** | **₹1,000-1,420/month** ⭐ |
 
-#### Growth Phase (500 societies, 25k users, 50k requests/day)
+#### Growth Phase (50 societies, 25k users, 50k requests/day)
 
 | Service | Monthly Cost | Notes |
 |---------|-------------|-------|
@@ -538,7 +540,7 @@
 
 ### 5.3 Cost Breakdown
 
-#### Launch Phase (100 societies, 5k users, 10k requests/day)
+#### Launch Phase (10 societies, 5k users, 10k requests/day)
 
 | Service | Monthly Cost | Notes |
 |---------|-------------|-------|
@@ -555,7 +557,7 @@
 | SQS | $0 | Free tier sufficient |
 | **TOTAL** | **$68-88/month** | **₹5,670-7,335/month** |
 
-#### Growth Phase (500 societies, 25k users, 50k requests/day)
+#### Growth Phase (50 societies, 25k users, 50k requests/day)
 
 | Service | Monthly Cost | Notes |
 |---------|-------------|-------|
@@ -732,7 +734,7 @@
 
 ### 6.3 Cost Breakdown
 
-#### Launch Phase (100 societies, 5k users, 10k requests/day)
+#### Launch Phase (10 societies, 5k users, 10k requests/day)
 
 | Service | Monthly Cost | Notes |
 |---------|-------------|-------|
@@ -748,7 +750,7 @@
 | DO Snapshots (Backups) | $5 | Weekly backups |
 | **TOTAL** | **$41/month** | **₹3,420/month** |
 
-#### Growth Phase (500 societies, 25k users, 50k requests/day)
+#### Growth Phase (50 societies, 25k users, 50k requests/day)
 
 **Option A: Single Larger VPS**
 
@@ -867,7 +869,7 @@
 
 **Winner:** Model 2 (Fly.io) - $17/month ($30 cheaper than Model 1)
 
-### 7.2 Growth Phase Comparison (500 societies, 25k users)
+### 7.2 Growth Phase Comparison (50 societies, 25k users)
 
 | Cost Component | Model 1 | Model 2 | Model 3 | Model 4 |
 |----------------|---------|---------|---------|---------|
@@ -889,7 +891,7 @@
 
 **Winner:** Model 1 (Railway) - $146/month (though Model 2 and 4 close behind)
 
-### 7.3 Mature Phase Projection (1000 societies, 50k users)
+### 7.3 Mature Phase Projection (100 societies, 50k users)
 
 | Cost Component | Model 1 | Model 2 | Model 3 | Model 4 |
 |----------------|---------|---------|---------|---------|
@@ -1003,7 +1005,7 @@ Total: ~45ms (feels instant) ⭐
 
 **Recommendation:**
 - **Easy path:** Supabase Auth (Model 1)
-- **Full control:** Self-hosted (Models 2/4) - worth the 1-2 days
+- **Full control:** Self-hosted (Models 2 or 4) - worth the 1-2 days
 
 ### 9.2 File Storage
 

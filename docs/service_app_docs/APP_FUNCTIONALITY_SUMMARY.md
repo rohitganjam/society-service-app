@@ -6,6 +6,34 @@
 
 ---
 
+## 🔄 **Multi-Society Context Switching**
+
+Users can register and manage multiple residences across different societies (e.g., primary home + vacation home).
+
+**Capabilities:**
+- Register in multiple societies with different units
+- Switch active society context to access location-specific vendors and services
+- View all residences with verification status (verified, pending, rejected)
+- See which society is currently active via persistent header
+- Orders are tied to active society to prevent wrong-location mistakes
+
+**Database (Implemented):**
+- `is_primary` - Main residence (ONE per user, trigger enforced)
+- `is_active` - Current society context (ONE per user, trigger enforced)
+- Functions: `set_active_society()`, `get_user_active_society()`, `get_user_all_residences()`
+
+**Mobile UX:**
+- **Active society header:** Always visible, shows current society and unit (e.g., "🏢 Maple Gardens, Flat A-404")
+- **Society switcher:** Tap header to open bottom sheet with all residences
+- **Society cards:** Show status badges (✓ Active, "Switch →" button for verified, "⏳ Pending" for unverified)
+- **Context-aware orders:** Order creation shows "📍 For: [Active Society]" to prevent mistakes
+
+**API Endpoints (Implemented):**
+- `GET /api/v1/residents/{user_id}/residences` - List all residences
+- `POST /api/v1/residents/{user_id}/switch-society` - Switch active context
+
+---
+
 ## 🏠 **Resident (Customer)**
 
 **What they do:**
@@ -165,123 +193,197 @@ Vehicle Order #124 (Mixed):
 
 ## 🏗️ **Society Organizational Structure**
 
-### Unified 4-Level Hierarchy
+### Generic Hierarchical Model
 
-All societies follow a consistent 4-level hierarchy, regardless of whether they're apartments or layouts:
+All societies use a **flexible, self-defining hierarchical structure** stored in a single table. Society admins can create any structure that matches their layout without requiring schema changes.
+
+#### Core Concept: Nodes in a Tree
+
+Every part of a society (from the society itself down to individual units) is represented as a **node** in a tree structure:
 
 ```
-Level 1: Society (Top Level)
-   ↓
-Level 2: Groups (Buildings/Phases/Towers/Sections)
-   ↓
-Level 3: Units (Flats/Houses)
-   ↓
-Level 4: Floors (Optional - for multi-floor households)
+Society (Root Node)
+├── Node (Building/Phase/Wing/Section/etc.)
+│   ├── Node (Floor/Sub-section/etc.) [Optional depth]
+│   │   ├── Node (Unit: Flat/House/Villa)
+│   │   │   └── Node (Floor within unit) [Optional for multi-story units]
+│   │   └── Node (Unit)
+│   └── Node (Unit) [If no intermediate floors]
+└── Node (Building/Phase/etc.)
 ```
 
-### Structure Types
+**Key Features:**
+- ✅ **Unlimited Depth:** Add as many levels as needed
+- ✅ **Flexible Naming:** Use any terminology (Building, Tower, Phase, Wing, etc.)
+- ✅ **No Schema Changes:** New structures = insert nodes, not alter tables
+- ✅ **Path-Based Queries:** Efficient ancestor/descendant lookups
 
-**1. Apartment Complexes:**
+---
+
+### Structure Examples
+
+#### **1. Apartment Complex**
 ```
-Example: "Green Valley Apartments"
-Society → Buildings → Flats → Floors
-
-├── Building A (Group)
-│   ├── Flat A-101 (Unit)
-│   │   └── Floor 1 (Optional - if duplex/triplex)
-│   ├── Flat A-102 (Unit - single floor)
-│   └── ...
-├── Tower B (Group)
-│   ├── Flat B-101 (Unit)
-│   └── ...
-└── Block C (Group)
-```
-
-**2. Independent House Layouts:**
-```
-Example: "Sunrise Villas"
-Society → Phases → Houses → Floors
-
-├── Phase 1 (Group)
-│   ├── House #101 (Unit)
-│   │   ├── Ground Floor (Floor 0)
-│   │   └── First Floor (Floor 1)
-│   ├── House #102 (Unit - single floor)
-│   └── ...
-├── Phase 2 (Group)
-│   ├── House #201 (Unit)
-│   └── ...
-└── East Section (Group)
+Green Valley Apartments (Society Node)
+├── Building A (Node: BUILDING)
+│   ├── Floor 1 (Node: FLOOR)
+│   │   ├── Flat A-101 (Node: UNIT)
+│   │   └── Flat A-102 (Node: UNIT)
+│   └── Floor 2 (Node: FLOOR)
+│       ├── Flat A-201 (Node: UNIT)
+│       └── Flat A-202 (Node: UNIT)
+└── Tower B (Node: TOWER)
+    ├── Flat B-101 (Node: UNIT) [No intermediate floors]
+    └── Flat B-102 (Node: UNIT)
 ```
 
-**3. Mixed Grouping Types:**
+**Path Examples:**
+- Flat A-101 path: `1.2.4.6` (Society → Building A → Floor 1 → Flat A-101)
+- Flat B-101 path: `1.3.8` (Society → Tower B → Flat B-101)
+
+---
+
+#### **2. Independent House Layout**
 ```
-Example: "Metro Heights" (Flexible naming)
-Society → Mixed Groups → Units → Floors
-
-├── North Wing (Group)
-│   └── Flat NW-101 (Unit)
-├── South Tower (Group)
-│   └── Flat ST-205 (Unit)
-└── Garden Villas (Group)
-    └── Villa #5 (Unit)
+Sunrise Villas (Society Node)
+├── Phase 1 (Node: PHASE)
+│   ├── House 101 (Node: UNIT)
+│   │   ├── Ground Floor (Node: FLOOR) [Multi-story house]
+│   │   └── First Floor (Node: FLOOR)
+│   └── House 102 (Node: UNIT) [Single-story]
+└── Phase 2 (Node: PHASE)
+    └── House 201 (Node: UNIT)
 ```
 
-**Group Types Supported:**
-- BUILDING, BLOCK, TOWER, WING (for apartments)
-- PHASE, SECTION, ZONE (for layouts)
-- Flexible naming allows society admins to use terminology that matches their society
+**Path Examples:**
+- House 101 Ground Floor: `10.11.13.15` (Society → Phase 1 → House 101 → GF)
+- House 102: `10.11.14` (Society → Phase 1 → House 102)
 
-### Vendor Assignment by Service Areas
+---
 
-Vendors can be assigned at different levels of the hierarchy:
+#### **3. Mixed/Custom Structure**
+```
+Metro Heights (Society Node)
+├── North Wing (Node: WING)
+│   └── Flat NW-101 (Node: UNIT)
+├── Garden Villas Section (Node: SECTION)
+│   ├── Villa 1 (Node: UNIT)
+│   └── Villa 2 (Node: UNIT)
+└── Commercial Block (Node: BLOCK)
+    └── Shop C-01 (Node: UNIT)
+```
 
-- **Society-wide:** Vendor serves all groups and units across the entire society
-- **Group-specific:** Vendor assigned to one or more groups (buildings/phases/towers/etc.)
-- **Multi-group:** Vendor can serve multiple groups simultaneously, even with different group types
+**Node Types Supported:**
+- `SOCIETY`, `BUILDING`, `TOWER`, `BLOCK`, `WING` (apartments)
+- `PHASE`, `SECTION`, `ZONE` (layouts)
+- `FLOOR`, `UNIT` (universal)
+- **Custom types:** Society admins can define any node type
 
-**Example Vendor Assignments:**
+---
+
+### Vendor Assignment by Hierarchy
+
+Vendors can be assigned to **any node** in the hierarchy. Assignment automatically includes all descendant nodes.
+
+#### **Assignment Flexibility:**
+
+**Level 1 - Society-Wide:**
+```
+"Premium Services"
+├── Assigned to: Society Root (entire society)
+└── Serves: ALL units in every building/phase
+```
+
+**Level 2 - Building/Phase:**
 ```
 "QuickWash Laundry"
-├── Assigned to: Building A, Tower B (multiple groups)
-└── Default visibility: Residents in Building A & Tower B see this vendor first
-
-"Express Cleaners"
-├── Assigned to: Phase 1, Phase 2 (multiple phases)
-└── Default visibility: Phase 1 & 2 residents see this vendor first
-
-"Premium Services"
-├── Assigned to: Entire Society
-└── Default visibility: All residents see this vendor
+├── Assigned to: Building A, Tower B
+└── Serves: All floors and units in Building A and Tower B
 ```
 
-**Resident Filtering Logic:**
-1. **Default:** Resident in Building A sees vendors assigned to Building A or entire society
-2. **Override:** Resident can toggle to see ALL vendors in society (for emergencies or preferences)
+**Level 3 - Floor-Specific:**
+```
+"Luxury Cleaners"
+├── Assigned to: Floor 14, Floor 15 (premium floors)
+└── Serves: Only units on floors 14-15
+```
 
-**Vendor Order View Logic:**
-1. **Default:** Vendor sees all orders from assigned groups
-2. **Filter:** Vendor can filter by group/service type as needed
+**Level 4 - Unit-Specific (Rare):**
+```
+"Personal Laundry Service"
+├── Assigned to: Flat A-101 (resident's preferred vendor)
+└── Serves: Only this specific flat
+```
+
+---
+
+### Resident Filtering Logic
+
+**How It Works:**
+
+1. **Find Resident's Path:**
+   - Resident in Flat A-101 has path: `1.2.4.6`
+   - Ancestors: Society (1), Building A (2), Floor 1 (4), Flat A-101 (6)
+
+2. **Match Vendor Assignments:**
+   - Show vendors assigned to:
+     - NULL (society-wide)
+     - Node 1 (society root)
+     - Node 2 (Building A)
+     - Node 4 (Floor 1)
+     - Node 6 (their flat)
+
+3. **Path-Based Query:**
+   ```
+   Resident path '1.2.4.6' matches vendors assigned to any ancestor in that path
+   ```
+
+**Default View:**
+- Resident sees vendors assigned to their hierarchy path
+- Example: Flat A-101 resident sees vendors for Building A, Floor 1, or society-wide
+
+**Override Option:**
+- Resident can toggle "Show All Vendors" to see every approved vendor
+- Useful for emergencies, personal preferences, or trying new services
+
+---
+
+### Vendor Order View Logic
+
+**Vendor Dashboard:**
+1. **Default:** Vendor sees all orders from units under their assigned nodes
+2. **Filter Options:**
+   - Filter by specific building/phase
+   - Filter by service type
+   - Filter by order status
+
+**Example:**
+- Vendor assigned to Building A
+- Sees orders from: All floors and flats in Building A
+- Can filter to: "Show only Floor 1 orders"
 
 ---
 
 ## 🔄 **Key Unique Features**
 
-1. **Unified 4-level hierarchy**: Consistent structure for all societies (Society → Groups → Units → Floors)
-2. **Flexible group types**: Support BUILDING, TOWER, BLOCK, WING, PHASE, SECTION, ZONE naming
-3. **Smart vendor assignment**: Assign vendors to entire society or specific groups
-4. **Intelligent vendor filtering**: Residents see assigned vendors by default, can view all if needed
-5. **Optional floor support**: Households can have multiple floors as actual residential units (duplex, triplex, etc.)
-6. **Separate orders per category**: Can't mix laundry with car wash - each category is a separate order
-7. **Mixed services within category**: One laundry order can have ironing + washing + dry cleaning items
-8. **Independent workflow tracking**: Each service type follows its own completion steps
-9. **Service-wise progress**: Ironing ready in 2 days while dry cleaning still processing (5 days)
-10. **Direct payments**: Residents pay vendors directly per order (UPI/cash), not through platform
-11. **Society subscription**: Societies pay platform monthly fee (₹5k-₹20k), vendors keep 100% of earnings
-12. **Multi-category platform**: Built day 1 to support all categories, activate when ready
-13. **Workflow flexibility**: Each service type can have unique completion steps
-14. **Cross-category vendors**: One vendor can serve multiple categories with different workflows
-15. **Zero rebuild needed**: Adding new categories/services = configuration, not development
+1. **Generic hierarchical model**: Flexible tree structure supports ANY society layout without schema changes
+2. **Unlimited hierarchy depth**: Add as many levels as needed (Society → Building → Floor → Unit, or custom)
+3. **Path-based queries**: Efficient ancestor/descendant lookups using PostgreSQL ltree extension
+4. **Ultra-flexible vendor assignment**: Assign vendors to any hierarchy level (society, building, floor, or even individual unit)
+5. **Hierarchical inheritance**: Vendor assigned to Building A automatically serves all floors and units within
+6. **Smart vendor filtering**: Residents see vendors assigned to their path ancestors by default
+7. **Override option**: Residents can view all vendors in society for emergencies or preferences
+8. **No type constraints**: Works uniformly for apartments, layouts, mixed-use, and future society types
+9. **Separate orders per category**: Can't mix laundry with car wash - each category is a separate order
+10. **Mixed services within category**: One laundry order can have ironing + washing + dry cleaning items
+11. **Independent workflow tracking**: Each service type follows its own completion steps
+12. **Service-wise progress**: Ironing ready in 2 days while dry cleaning still processing (5 days)
+13. **Manual payment confirmation**: Vendor self-reports payment receipt (CASH/UPI/CARD), auto-closes after 48h grace period
+14. **Society subscription**: Societies pay platform monthly fee (₹5k-₹20k), vendors keep 100% of earnings
+15. **Multi-category platform**: Built day 1 to support all categories, activate when ready
+16. **Workflow flexibility**: Each service type can have unique completion steps
+17. **Cross-category vendors**: One vendor can serve multiple categories with different workflows
+18. **Zero rebuild needed**: Adding new categories/services OR new society structures = configuration, not development
 
 ---
 

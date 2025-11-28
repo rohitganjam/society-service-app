@@ -8,6 +8,12 @@
 
 ## Table of Contents
 
+0. [Standard Response Formats](#0-standard-response-formats)
+   - [Success Response](#01-success-response-format)
+   - [Error Response](#02-error-response-format)
+   - [Common Error Codes](#03-common-error-codes)
+   - [HTTP Status Codes](#04-http-status-codes)
+   - [Standard Headers](#05-standard-requestresponse-headers)
 1. [Authentication APIs](#1-authentication-apis)
 2. [Onboarding APIs](#2-onboarding-apis)
    - [Resident Onboarding](#21-resident-onboarding)
@@ -26,6 +32,244 @@
 8. [Payment APIs](#8-payment-apis)
 
 ---
+
+## 0. Standard Response Formats
+
+All API endpoints follow a standardized response format for both success and error cases. This ensures consistency across the entire API and simplifies client-side error handling.
+
+### 0.1 Success Response Format
+
+**Structure:**
+```json
+{
+  "success": true,
+  "data": {
+    // Response data specific to the endpoint
+  },
+  "message": "Optional success message"  // Optional
+}
+```
+
+**Guidelines:**
+- `success`: Always `true` for successful responses
+- `data`: Contains the response payload (object, array, or null)
+- `message`: Optional human-readable success message
+
+---
+
+### 0.2 Error Response Format
+
+**Standard Structure:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable error message",
+    "details": {
+      "field": "specific_field_name",      // Optional
+      "reason": "specific_reason",          // Optional
+      "context": {                          // Optional
+        "key": "value"
+      }
+    },
+    "metadata": {                           // Optional
+      "retry_after_seconds": 60,            // Only for rate limits
+      "timestamp": "2025-11-20T10:15:00Z",  // Error occurrence time
+      "request_id": "uuid-v4"               // For debugging/support
+    }
+  }
+}
+```
+
+**Field Descriptions:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `success` | boolean | Yes | Always `false` for errors |
+| `error.code` | string | Yes | Machine-readable error code (SCREAMING_SNAKE_CASE) |
+| `error.message` | string | Yes | Human-readable, actionable error message |
+| `error.details.field` | string | No | Which request field caused the error |
+| `error.details.reason` | string | No | Specific reason for the failure |
+| `error.details.context` | object | No | Additional recovery information |
+| `error.metadata.retry_after_seconds` | number | No | Seconds to wait before retrying (rate limits) |
+| `error.metadata.timestamp` | string | No | ISO 8601 timestamp of error |
+| `error.metadata.request_id` | string | No | UUID for tracing/debugging |
+
+**Guidelines:**
+
+1. **Error Code (`code`)**:
+   - Use SCREAMING_SNAKE_CASE
+   - Be specific and descriptive
+   - Examples: `INVALID_OTP`, `USER_NOT_FOUND`, `RATE_LIMIT_EXCEEDED`
+
+2. **Error Message (`message`)**:
+   - Write for end users (clear, actionable)
+   - Avoid technical jargon
+   - Include what went wrong and how to fix it
+   - Example: "Invalid OTP. Please check and try again." (not "OTP validation failed")
+
+3. **Details Object (`details`)**:
+   - Use for field-specific errors, validation failures, or recovery hints
+   - `field`: Name of the request field that caused the error
+   - `reason`: Specific reason (e.g., "too_short", "already_exists", "invalid_format")
+   - `context`: Recovery data (e.g., available options, current state)
+
+4. **Metadata Object (`metadata`)**:
+   - Use for timing/pagination/debugging data
+   - `retry_after_seconds`: Required for rate limit (429) responses
+   - `timestamp`: Helps with debugging time-sensitive issues
+   - `request_id`: Enables request tracing in logs
+
+**Examples:**
+
+**Basic Error (Field Validation):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_PHONE_NUMBER",
+    "message": "Phone number must be 10 digits starting with 6-9",
+    "details": {
+      "field": "phone",
+      "reason": "invalid_format"
+    }
+  }
+}
+```
+
+**Error with Context (Recovery Information):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "SOCIETY_NOT_FOUND",
+    "message": "You are not registered in the specified society",
+    "details": {
+      "field": "society_id",
+      "reason": "not_registered",
+      "context": {
+        "available_societies": [
+          {"society_id": 1, "society_name": "Maple Gardens"},
+          {"society_id": 2, "society_name": "Oak Residency"}
+        ]
+      }
+    }
+  }
+}
+```
+
+**Rate Limit Error (with Metadata):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Too many OTP requests. Please try again after 60 seconds",
+    "details": {
+      "reason": "too_many_requests"
+    },
+    "metadata": {
+      "retry_after_seconds": 60,
+      "timestamp": "2025-11-20T10:15:00Z"
+    }
+  }
+}
+```
+
+---
+
+### 0.3 Common Error Codes
+
+This table lists standard error codes used across all API endpoints:
+
+| Error Code | HTTP Status | Description | When to Use |
+|------------|-------------|-------------|-------------|
+| `INVALID_REQUEST` | 400 | Malformed request body/parameters | Missing required fields, invalid JSON |
+| `UNAUTHORIZED` | 401 | Authentication required | Missing/invalid access token |
+| `FORBIDDEN` | 403 | Insufficient permissions | User lacks required role/permissions |
+| `NOT_FOUND` | 404 | Resource not found | Entity doesn't exist in database |
+| `CONFLICT` | 409 | Resource already exists | Duplicate phone/email, unique constraint violation |
+| `VALIDATION_ERROR` | 422 | Validation failed | Field format incorrect, business rule violation |
+| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests | OTP requests, API rate limit exceeded |
+| `INTERNAL_SERVER_ERROR` | 500 | Server error | Unexpected exception, database error |
+| **Authentication** |||
+| `INVALID_OTP` | 401 | OTP verification failed | Wrong OTP code, expired OTP |
+| `INVALID_CREDENTIALS` | 401 | Login credentials incorrect | Wrong password, user not found |
+| `TOKEN_EXPIRED` | 401 | Access token expired | Refresh token required |
+| `SESSION_EXPIRED` | 401 | User session expired | Re-login required |
+| **User Management** |||
+| `USER_NOT_FOUND` | 404 | User doesn't exist | Phone/email not registered |
+| `USER_ALREADY_EXISTS` | 409 | User already registered | Duplicate phone/email |
+| `EMAIL_ALREADY_EXISTS` | 409 | Email in use | Duplicate email |
+| `PHONE_ALREADY_EXISTS` | 409 | Phone in use | Duplicate phone |
+| **Society/Residence** |||
+| `SOCIETY_NOT_FOUND` | 404 | Society doesn't exist | Invalid society_id |
+| `SOCIETY_NOT_VERIFIED` | 403 | Verification pending | Resident not approved yet |
+| `UNIT_NOT_FOUND` | 404 | Unit doesn't exist | Invalid unit_node_id |
+| **Orders** |||
+| `ORDER_NOT_FOUND` | 404 | Order doesn't exist | Invalid order_id |
+| `INVALID_ORDER_STATUS` | 422 | Invalid status transition | Cannot cancel delivered order |
+| `UNAUTHORIZED_VENDOR` | 403 | Vendor not assigned | Vendor not authorized for this order |
+| **Payments** |||
+| `PAYMENT_ALREADY_CONFIRMED` | 409 | Payment already marked | Duplicate payment confirmation |
+| `INVALID_PAYMENT_AMOUNT` | 422 | Amount mismatch | Payment amount doesn't match order total |
+| **Other** |||
+| `LAST_CONTACT_METHOD` | 422 | Cannot remove last contact | User must have ≥1 contact method |
+| `TOO_MANY_REQUESTS` | 429 | Rate limit exceeded | OTP resend limit, API throttling |
+
+---
+
+### 0.4 HTTP Status Codes
+
+All API endpoints use standard HTTP status codes to indicate success or failure.
+
+**Success Codes:**
+- `200 OK` - Request successful, response body contains data
+- `201 Created` - Resource created successfully (e.g., new order, new resident)
+- `204 No Content` - Successful operation with no response body (e.g., delete operations)
+
+**Client Error Codes:**
+- `400 Bad Request` - Malformed request (invalid JSON, missing required fields)
+- `401 Unauthorized` - Authentication required or failed (invalid/expired token)
+- `403 Forbidden` - Insufficient permissions (user lacks required role)
+- `404 Not Found` - Resource not found (invalid ID, entity doesn't exist)
+- `409 Conflict` - Resource conflict (duplicate email/phone, unique constraint violation)
+- `422 Unprocessable Entity` - Validation failed (invalid field format, business rule violation)
+- `429 Too Many Requests` - Rate limit exceeded (too many OTP requests, API throttling)
+
+**Server Error Codes:**
+- `500 Internal Server Error` - Unexpected server error (exception, database error)
+- `503 Service Unavailable` - Service temporarily unavailable (maintenance, overload)
+
+---
+
+### 0.5 Standard Request/Response Headers
+
+All API endpoints use standard headers for authentication, content negotiation, and rate limiting.
+
+**Request Headers:**
+
+| Header | Required | Description | Example |
+|--------|----------|-------------|---------|
+| `Authorization` | Yes* | Bearer token for authenticated requests | `Bearer eyJhbGciOiJIUzI1...` |
+| `Content-Type` | Yes** | Request body format | `application/json` |
+| `Accept` | No | Desired response format | `application/json` |
+| `X-API-Version` | No | API version (defaults to v1) | `v1` |
+
+\* Not required for authentication endpoints (send OTP, verify OTP, login)
+\** Only required for requests with a body (POST, PUT, PATCH)
+
+**Response Headers:**
+
+| Header | Always Present | Description | Example |
+|--------|----------------|-------------|---------|
+| `Content-Type` | Yes | Response body format | `application/json` |
+| `X-Request-ID` | Yes | Unique request identifier for tracing | `550e8400-e29b-41d4-a716-446655440000` |
+| `X-Rate-Limit-Remaining` | No* | Requests remaining in current window | `95` |
+| `X-Rate-Limit-Reset` | No* | Unix timestamp when rate limit resets | `1732096800` |
+
+\* Only present for rate-limited endpoints (OTP, authentication)
 
 ## 1. Authentication APIs
 
@@ -798,9 +1042,9 @@ GET /api/v1/societies/search?q=maple&city=Bangalore
 
 **Endpoint:** `POST /api/v1/onboarding/resident/register`
 
-**Description:** Complete resident registration. Supports apartments and independent houses with multiple households.
+**Description:** Complete resident registration using generic hierarchical model. Unit selection via `unit_node_id`.
 
-**Request Body (Auto-verified from roster - Apartment):**
+**Request Body (Auto-verified from roster):**
 ```json
 {
   "temp_user_id": "uuid-v4",
@@ -808,73 +1052,32 @@ GET /api/v1/societies/search?q=maple&city=Bangalore
   "full_name": "Ramesh Kumar",
   "email": "ramesh@example.com",
   "society_id": 1,
-  "unit_type": "FLAT",
-  "flat_number": "A-404",
-  "tower": "A",
-  "floor": 4,
+  "unit_node_id": 42,
   "from_roster": true
 }
 ```
 
-**Request Body (Auto-verified from roster - Independent House):**
+**Request Body (Manual verification - Not in roster):**
 ```json
 {
   "temp_user_id": "uuid-v4",
   "phone": "+919876543211",
   "full_name": "Priya Sharma",
   "email": "priya@example.com",
-  "society_id": 5,
-  "unit_type": "HOUSE",
-  "house_number": "42",
-  "street": "5th Cross",
-  "floor": 1,
-  "notes": "First floor",
-  "from_roster": true
-}
-```
-
-**Request Body (Manual verification - Not in roster - Apartment):**
-```json
-{
-  "temp_user_id": "uuid-v4",
-  "phone": "+919876543210",
-  "full_name": "Ramesh Kumar",
-  "email": "ramesh@example.com",
   "society_id": 1,
-  "unit_type": "FLAT",
-  "flat_number": "B-302",
-  "tower": "B",
-  "floor": 3,
+  "unit_node_id": 45,
+  "notes": "Second floor resident",
   "from_roster": false
 }
 ```
 
-**Request Body (Manual verification - Not in roster - Independent House):**
-```json
-{
-  "temp_user_id": "uuid-v4",
-  "phone": "+919876543212",
-  "full_name": "Amit Verma",
-  "email": "amit@example.com",
-  "society_id": 8,
-  "unit_type": "HOUSE",
-  "house_number": "15",
-  "street": "Main Road",
-  "floor": 0,
-  "notes": "Ground floor - separate entrance",
-  "from_roster": false
-}
-```
-
-**Request Body (Multi-society user - Adding additional society):**
+**Request Body (Multi-society user - Adding additional residence):**
 ```json
 {
   "user_id": "existing-uuid-v4",
   "phone": "+919876543210",
   "society_id": 3,
-  "unit_type": "FLAT",
-  "flat_number": "201",
-  "floor": 2,
+  "unit_node_id": 152,
   "is_primary": false,
   "notes": "Weekend home",
   "from_roster": false
@@ -1140,11 +1343,19 @@ Authorization: Bearer {access_token}
 }
 ```
 
+**Mobile UX Integration:**
+- **Trigger:** User taps "Switch →" button on a society card in the switcher bottom sheet
+- **Loading State:** Show spinner with text "Switching to [Society Name]..."
+- **Success:** Close bottom sheet, update active society header, refresh home screen with new vendors, show success toast
+- **Error 403:** Show modal explaining verification is pending/rejected with status details
+- **Error 404:** Show modal listing available verified societies user can switch to
+
 **Notes:**
 - All subsequent API calls (vendor listing, order creation) use the active society context
 - Active society preference is stored in user session/profile
 - User can only switch to societies where they have a verified residence
 - Switching society updates the vendor list, rate cards shown, and available services
+- Returns vendor count and active categories for the new society to update UI immediately
 
 ---
 
@@ -1226,11 +1437,22 @@ Authorization: Bearer {access_token}
 }
 ```
 
+**Mobile UX Integration:**
+- **Trigger:** Called when user taps active society header to open switcher bottom sheet
+- **Display:** Render society cards for each residence with status-specific UI:
+  - **Active (is_active = true):** Checkmark icon, highlighted background, no switch button
+  - **Verified (verification_status = 'VERIFIED'):** "Switch →" button enabled, full details
+  - **Pending (verification_status = 'PENDING'):** "⏳ Pending" badge, disabled state, show submitted_at date
+  - **Rejected (verification_status = 'REJECTED'):** "❌ Rejected" badge, show rejection reason if available
+  - **Primary (is_primary = true):** Add "⭐ Primary" badge regardless of active status
+- **Summary Footer:** Show counts: "2 verified · 1 pending" from response metadata
+
 **Notes:**
-- `is_active`: Indicates which society is currently selected/active
-- `is_primary`: User's main residence (set during initial registration)
+- `is_active`: Indicates which society is currently selected/active (only ONE per user)
+- `is_primary`: User's main residence (set during initial registration, only ONE per user)
 - Users can have residences in pending verification status
 - Pending residences cannot be set as active until verified
+- Response includes full address and unit details needed for society switcher UI
 
 ---
 
@@ -1460,6 +1682,144 @@ Authorization: Bearer {access_token}
     ]
   }
 }
+```
+
+---
+
+### 2.3 Vendor Service Management
+
+#### 2.3.1 Copy Services to New Society
+
+**Endpoint:** `POST /api/v1/vendors/{vendor_id}/services/copy`
+
+**Description:** Copy vendor's service offerings and configurations from one society to another. This simplifies vendor onboarding when they join a new society.
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Request Body:**
+```json
+{
+  "source_society_id": 1,
+  "target_society_id": 3,
+  "copy_turnaround_times": true,
+  "copy_rate_cards": true,
+  "parent_category_id": 1,  // Optional: specific category (LAUNDRY, VEHICLE, etc.), omit to copy all categories
+  "services_to_copy": [1, 2, 3]  // Optional: specific service IDs within category, omit to copy all
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Services copied successfully to target society",
+  "data": {
+    "source_society": {
+      "society_id": 1,
+      "society_name": "Maple Gardens"
+    },
+    "target_society": {
+      "society_id": 3,
+      "society_name": "Beach View Apartments"
+    },
+    "categories_copied": [
+      {
+        "parent_category_id": 1,
+        "category_name": "LAUNDRY",
+        "services": [
+          {
+            "service_id": 1,
+            "service_name": "Ironing",
+            "turnaround_hours": 24,
+            "rate_card_items": 15
+          },
+          {
+            "service_id": 2,
+            "service_name": "Washing",
+            "turnaround_hours": 48,
+            "rate_card_items": 12
+          },
+          {
+            "service_id": 3,
+            "service_name": "Dry Cleaning",
+            "turnaround_hours": 120,
+            "rate_card_items": 8
+          }
+        ],
+        "rate_card_id": 42,
+        "rate_card_status": "UNPUBLISHED"
+      }
+    ],
+    "total_categories_copied": 1,
+    "total_services_copied": 3,
+    "total_rate_card_items_copied": 35
+  }
+}
+```
+
+**Response (400 Bad Request - Services already exist in target):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "SERVICES_ALREADY_EXIST",
+    "message": "Some services already exist in the target society",
+    "details": {
+      "existing_services": [
+        {
+          "service_id": 1,
+          "service_name": "Ironing",
+          "action": "Use PUT endpoint to update instead"
+        }
+      ],
+      "services_that_can_be_copied": [2, 3]
+    }
+  }
+}
+```
+
+**Response (403 Forbidden):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "VENDOR_NOT_APPROVED",
+    "message": "Vendor is not approved in the target society",
+    "details": {
+      "target_society_id": 3,
+      "vendor_approval_status": "PENDING"
+    }
+  }
+}
+```
+
+**Notes:**
+- Vendor must be approved in BOTH source and target societies
+- Copied services are created as `is_active = true` in target society
+- Rate cards are created per parent_category (one rate card per category)
+- Copied rate cards are created as `is_published = false` (vendor must review and publish)
+- Turnaround times are copied but can be modified after
+- If `copy_rate_cards = false`, only service entries are created without pricing
+- Vendor can adjust turnaround times per society after copying
+- Each parent_category gets its own rate card in the target society
+
+**Use Cases:**
+1. Vendor approved in new society → Copy all categories/services from existing society
+2. Vendor wants to copy only LAUNDRY services → Specify `parent_category_id = 1`
+3. Vendor wants to offer same services but different pricing → Copy services only (`copy_rate_cards = false`)
+4. Vendor wants to offer subset of services within a category → Specify both `parent_category_id` and `services_to_copy` array
+
+**Example:**
+```
+Source society has:
+- LAUNDRY rate card (Ironing, Washing, Dry Cleaning)
+- VEHICLE rate card (Car Wash, Bike Wash)
+
+Copy all categories → Creates 2 rate cards in target society
+Copy only LAUNDRY → Creates 1 rate card (LAUNDRY only)
 ```
 
 ---
@@ -1820,11 +2180,196 @@ Authorization: Bearer {access_token}
 
 ---
 
-#### 3.1.6 Assign Vendor to Service Areas (Unified Groups)
+#### 3.1.6 Get Society Hierarchy
+
+**Endpoint:** `GET /api/v1/societies/{society_id}/hierarchy`
+
+**Description:** Retrieve the complete hierarchical structure of a society (tree format)
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+- `include_inactive` (boolean, optional): Include inactive nodes (default: false)
+- `node_types` (string, optional): Comma-separated list to filter by type (e.g., "BUILDING,UNIT")
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "society_id": 1,
+    "society_name": "Green Valley Apartments",
+    "root_node": {
+      "node_id": 1,
+      "parent_node_id": null,
+      "node_type": "SOCIETY",
+      "node_code": "SOC1",
+      "node_name": "Green Valley Apartments",
+      "level_depth": 1,
+      "path": "1",
+      "is_active": true,
+      "children": [
+        {
+          "node_id": 2,
+          "parent_node_id": 1,
+          "node_type": "BUILDING",
+          "node_code": "A",
+          "node_name": "Building A",
+          "level_depth": 2,
+          "path": "1.2",
+          "is_active": true,
+          "children": [
+            {
+              "node_id": 4,
+              "parent_node_id": 2,
+              "node_type": "FLOOR",
+              "node_code": "F1",
+              "node_name": "Floor 1",
+              "level_depth": 3,
+              "path": "1.2.4",
+              "is_active": true,
+              "children": [
+                {
+                  "node_id": 6,
+                  "parent_node_id": 4,
+                  "node_type": "UNIT",
+                  "node_code": "A-101",
+                  "node_name": "Flat A-101",
+                  "level_depth": 4,
+                  "path": "1.2.4.6",
+                  "is_active": true,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+---
+
+#### 3.1.7 Create Hierarchy Node
+
+**Endpoint:** `POST /api/v1/societies/{society_id}/hierarchy/nodes`
+
+**Description:** Create a new node in the society hierarchy
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Request Body:**
+```json
+{
+  "parent_node_id": 2,
+  "node_type": "FLOOR",
+  "node_code": "F5",
+  "node_name": "Floor 5",
+  "description": "Fifth floor residential units",
+  "display_order": 5
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "success": true,
+  "message": "Hierarchy node created successfully",
+  "data": {
+    "node_id": 25,
+    "parent_node_id": 2,
+    "society_id": 1,
+    "node_type": "FLOOR",
+    "node_code": "F5",
+    "node_name": "Floor 5",
+    "level_depth": 3,
+    "path": "1.2.25",
+    "display_order": 5,
+    "is_active": true,
+    "created_at": "2025-11-20T10:00:00Z"
+  }
+}
+```
+
+---
+
+#### 3.1.8 Search Units (Flats/Houses)
+
+**Endpoint:** `GET /api/v1/societies/{society_id}/units`
+
+**Description:** Search for units (flats/houses) within a society with full path information
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+- `search` (string, optional): Search by unit code or name
+- `parent_node_id` (integer, optional): Filter by parent node (e.g., all units in Building A)
+- `page` (integer, default: 1)
+- `limit` (integer, default: 20, max: 100)
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "units": [
+      {
+        "node_id": 42,
+        "node_code": "A-101",
+        "node_name": "Flat A-101",
+        "node_type": "UNIT",
+        "path": "1.2.4.42",
+        "full_path": "Green Valley Apartments / Building A / Floor 1 / Flat A-101",
+        "ancestors": [
+          {"node_id": 1, "node_name": "Green Valley Apartments", "node_type": "SOCIETY"},
+          {"node_id": 2, "node_name": "Building A", "node_type": "BUILDING"},
+          {"node_id": 4, "node_name": "Floor 1", "node_type": "FLOOR"}
+        ],
+        "is_active": true
+      },
+      {
+        "node_id": 45,
+        "node_code": "A-102",
+        "node_name": "Flat A-102",
+        "node_type": "UNIT",
+        "path": "1.2.4.45",
+        "full_path": "Green Valley Apartments / Building A / Floor 1 / Flat A-102",
+        "ancestors": [
+          {"node_id": 1, "node_name": "Green Valley Apartments", "node_type": "SOCIETY"},
+          {"node_id": 2, "node_name": "Building A", "node_type": "BUILDING"},
+          {"node_id": 4, "node_name": "Floor 1", "node_type": "FLOOR"}
+        ],
+        "is_active": true
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 150,
+      "total_pages": 8
+    }
+  }
+}
+```
+
+---
+
+#### 3.1.9 Assign Vendor to Hierarchy Node
 
 **Endpoint:** `POST /api/v1/admin/society/{society_id}/vendors/{vendor_id}/service-areas`
 
-**Description:** Assign vendor to specific groups (buildings/phases) or entire society - unified approach
+**Description:** Assign vendor to specific hierarchy node(s) or entire society. Assignment automatically includes all descendant nodes.
 
 **Headers:**
 ```
@@ -1834,15 +2379,14 @@ Authorization: Bearer {access_token}
 **Request Body (Assign to entire society):**
 ```json
 {
-  "assignment_type": "SOCIETY"
+  "node_id": null
 }
 ```
 
-**Request Body (Assign to specific groups - works for both buildings and phases):**
+**Request Body (Assign to specific nodes - building, phase, floor, etc.):**
 ```json
 {
-  "assignment_type": "GROUP",
-  "group_ids": [1, 2]
+  "node_ids": [2, 3]
 }
 ```
 
@@ -3436,11 +3980,91 @@ Authorization: Bearer {access_token}
 
 ---
 
-## 8. Payment APIs
+## 8. Payment APIs (Manual Confirmation for MVP)
 
-### 8.1 Get Payment Details
+**Note:** For MVP, payments are handled manually. Vendors confirm payment receipt after collecting cash/UPI directly from residents. In-app payment integration (Razorpay/Stripe) is planned for V2.
 
-**Endpoint:** `GET /api/v1/orders/{order_id}/payment`
+### 8.1 Mark Payment Received (Vendor Only)
+
+**Endpoint:** `POST /api/v1/orders/{order_id}/mark-payment-received`
+
+**Description:** Vendor confirms payment receipt. Triggers 48-hour auto-closure grace period.
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Authorization:** Vendor only (must be assigned to this order)
+
+**Request Body:**
+```json
+{
+  "payment_method": "CASH",
+  "payment_notes": "Paid ₹355 in cash on delivery"
+}
+```
+
+**Request Body Options:**
+```json
+{
+  "payment_method": "UPI" | "CASH" | "CARD" | "OTHER",
+  "payment_notes": "Optional notes about payment"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Payment confirmed. Order will auto-close in 48 hours.",
+  "data": {
+    "order_id": "uuid-v4",
+    "order_number": "ORD20251120000001",
+    "status": "PAYMENT_RECEIVED",
+    "payment_type": "MANUAL",
+    "payment_method": "CASH",
+    "payment_received_at": "2025-11-27T15:00:00Z",
+    "auto_close_at": "2025-11-29T15:00:00Z",
+    "grace_period_hours": 48,
+    "final_price": 355.00,
+    "next_steps": {
+      "message": "Order will automatically close after 48 hours if no disputes are raised.",
+      "can_be_disputed": true,
+      "dispute_deadline": "2025-11-29T15:00:00Z"
+    }
+  }
+}
+```
+
+**Response (400 Bad Request - Invalid Status):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_ORDER_STATUS",
+    "message": "Payment can only be marked for orders with status DELIVERED",
+    "current_status": "IN_PROGRESS"
+  }
+}
+```
+
+**Response (403 Forbidden - Not Vendor's Order):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "UNAUTHORIZED_VENDOR",
+    "message": "You are not authorized to mark payment for this order"
+  }
+}
+```
+
+---
+
+### 8.2 Get Payment Status
+
+**Endpoint:** `GET /api/v1/orders/{order_id}/payment-status`
 
 **Description:** Get payment information for an order
 
@@ -3449,74 +4073,63 @@ Authorization: Bearer {access_token}
 Authorization: Bearer {access_token}
 ```
 
-**Response (200 OK):**
+**Response (200 OK - Payment Received):**
 ```json
 {
   "success": true,
   "data": {
     "order_id": "uuid-v4",
     "order_number": "ORD20251120000001",
-    "payment_status": "PENDING",
-    "amount_details": {
-      "estimated_price": 335.00,
-      "final_price": 355.00,
-      "discount_amount": 0.00,
-      "amount_due": 355.00
-    },
-    "payment_methods": [
-      {
-        "method": "UPI",
-        "enabled": true,
-        "details": {
-          "vendor_upi_id": "perfectpress@paytm",
-          "vendor_name": "Perfect Press"
-        }
-      },
-      {
-        "method": "CASH",
-        "enabled": true,
-        "details": {
-          "note": "Pay directly to vendor on delivery"
-        }
-      }
-    ],
-    "payment_deadline": null,
+    "order_status": "PAYMENT_RECEIVED",
+    "payment_type": "MANUAL",
+    "payment_method": "CASH",
+    "payment_received_at": "2025-11-27T15:00:00Z",
+    "payment_notes": "Paid ₹355 in cash on delivery",
+    "auto_close_at": "2025-11-29T15:00:00Z",
+    "hours_until_auto_close": 47,
+    "can_dispute": true,
+    "final_price": 355.00
+  }
+}
+```
+
+**Response (200 OK - Delivered, Payment Pending):**
+```json
+{
+  "success": true,
+  "data": {
+    "order_id": "uuid-v4",
+    "order_number": "ORD20251120000001",
     "order_status": "DELIVERED",
-    "delivered_at": "2025-11-26T15:00:00Z"
+    "payment_type": "MANUAL",
+    "payment_method": null,
+    "payment_received_at": null,
+    "final_price": 355.00,
+    "message": "Awaiting vendor payment confirmation"
   }
 }
 ```
 
 ---
 
-### 8.2 Record Payment (Resident)
+### 8.3 Dispute Payment (Resident Only)
 
-**Endpoint:** `POST /api/v1/orders/{order_id}/payment`
+**Endpoint:** `POST /api/v1/orders/{order_id}/dispute-payment`
 
-**Description:** Record payment made by resident
+**Description:** Resident raises dispute if payment information is incorrect. Freezes auto-closure.
 
 **Headers:**
 ```
 Authorization: Bearer {access_token}
 ```
 
-**Request Body (UPI):**
-```json
-{
-  "payment_method": "UPI",
-  "amount": 355.00,
-  "upi_transaction_id": "UPI123456789",
-  "upi_vpa": "resident@paytm",
-  "payment_screenshot_url": "https://..."
-}
-```
+**Authorization:** Resident only (must own this order)
 
-**Request Body (Cash):**
+**Request Body:**
 ```json
 {
-  "payment_method": "CASH",
-  "amount": 355.00,
-  "notes": "Paid in cash on delivery"
+  "dispute_reason": "PAYMENT_NOT_MADE",
+  "dispute_details": "I did not pay yet. Vendor marked payment incorrectly."
 }
 ```
 
@@ -3524,23 +4137,46 @@ Authorization: Bearer {access_token}
 ```json
 {
   "success": true,
-  "message": "Payment recorded successfully",
+  "message": "Dispute raised successfully. Society admin will review.",
   "data": {
-    "payment_id": "uuid-v4",
+    "dispute_id": "uuid-v4",
     "order_id": "uuid-v4",
-    "amount": 355.00,
-    "payment_method": "UPI",
-    "status": "COMPLETED",
-    "upi_transaction_id": "UPI123456789",
-    "paid_at": "2025-11-26T15:05:00Z",
-    "order_status": "COMPLETED",
+    "order_status": "DISPUTED",
+    "dispute_reason": "PAYMENT_NOT_MADE",
+    "dispute_raised_at": "2025-11-27T16:00:00Z",
+    "auto_close_frozen": true,
     "next_steps": {
-      "message": "Please rate your experience",
-      "can_rate": true
+      "message": "Society admin will contact both parties to resolve this dispute.",
+      "estimated_resolution_time": "24-48 hours"
     }
   }
 }
 ```
+
+---
+
+**Auto-Closure Background Job:**
+
+A cron job runs hourly to automatically close orders:
+
+```javascript
+// Runs every hour
+UPDATE orders
+SET status = 'CLOSED', updated_at = NOW()
+WHERE status = 'PAYMENT_RECEIVED'
+  AND auto_close_at < NOW()
+  AND NOT EXISTS (
+    SELECT 1 FROM disputes
+    WHERE order_id = orders.order_id
+    AND status = 'OPEN'
+  );
+```
+
+**V2 Feature - In-App Payments:**
+- Future orders with `payment_type='IN_APP'` will use Razorpay/Stripe
+- Webhook verification will auto-close orders immediately
+- Manual payment flow continues for `payment_type='MANUAL'` orders
+- Zero breaking changes to existing orders
 
 ---
 
@@ -3958,68 +4594,6 @@ Authorization: Bearer {access_token}
 }
 ```
 
----
 
-## API Response Codes
-
-### Success Codes
-- `200 OK` - Request successful
-- `201 Created` - Resource created successfully
-- `204 No Content` - Successful with no response body
-
-### Client Error Codes
-- `400 Bad Request` - Invalid request parameters
-- `401 Unauthorized` - Authentication required or failed
-- `403 Forbidden` - Insufficient permissions
-- `404 Not Found` - Resource not found
-- `409 Conflict` - Resource conflict (e.g., duplicate entry)
-- `422 Unprocessable Entity` - Validation failed
-- `429 Too Many Requests` - Rate limit exceeded
-
-### Server Error Codes
-- `500 Internal Server Error` - Server error
-- `503 Service Unavailable` - Service temporarily unavailable
-
----
-
-## Error Response Format
-
-All error responses follow this structure:
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human-readable error message",
-    "details": {
-      "field": "specific_field",
-      "reason": "validation failure reason"
-    }
-  }
-}
-```
-
----
-
-## Common Headers
-
-### Request Headers
-```
-Authorization: Bearer {access_token}
-Content-Type: application/json
-Accept: application/json
-X-API-Version: v1
-```
-
-### Response Headers
-```
-Content-Type: application/json
-X-Request-ID: uuid-v4
-X-Rate-Limit-Remaining: 100
-X-Rate-Limit-Reset: 1700000000
-```
-
----
 
 **End of API Specification Document**

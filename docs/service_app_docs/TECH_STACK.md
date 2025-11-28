@@ -2,7 +2,7 @@
 
 **Version:** 2.0
 **Date:** November 17, 2025
-**Architecture:** Clean Service-Oriented with Flutter Mobile + Node.js Backend
+**Architecture:** Clean Service-Oriented with Flutter Mobile + Go Backend
 
 ---
 
@@ -11,7 +11,7 @@
 1. [Executive Summary](#1-executive-summary)
 2. [Architecture Overview](#2-architecture-overview)
 3. [Technology Stack](#3-technology-stack)
-4. [Backend Services (Node.js on Vercel)](#4-backend-services-nodejs-on-vercel)
+4. [Backend Services (Go on Railway)](#4-backend-services-go-on-railway)
 5. [Mobile Applications (Flutter)](#5-mobile-applications-flutter)
 6. [Web Applications (Next.js)](#6-web-applications-nextjs)
 7. [Database & Storage (Supabase)](#7-database--storage-supabase)
@@ -31,7 +31,7 @@
 **Clean Service-Oriented Architecture** with strict separation of concerns:
 
 - **Mobile Apps (Flutter)**: Pure UI rendering + API calls, zero business logic
-- **Backend API (Node.js)**: All business logic, validation, orchestration
+- **Backend API (Go)**: All business logic, validation, orchestration
 - **Database (Supabase)**: PostgreSQL with Row Level Security
 - **Edge Functions (Supabase)**: Webhooks, cron jobs, background tasks
 - **Web Admin (Next.js)**: Dashboard UI + shared backend API
@@ -50,18 +50,20 @@
 | Component | Technology | Platform | Purpose |
 |-----------|-----------|----------|---------|
 | **Mobile Apps** | Flutter | iOS/Android | UI rendering only |
-| **Backend API** | Node.js (Express) | Vercel | All business logic |
+| **Backend API** | Go 1.21+ (Gin/Chi) | Railway/VPS | All business logic |
 | **Web Admin** | Next.js 14 | Vercel | Admin dashboard |
 | **Database** | PostgreSQL | Supabase | Data storage |
-| **Edge Functions** | Deno | Supabase | Webhooks, crons |
+| **Edge Functions** | Deno | Supabase | Webhooks, background tasks |
 | **File Storage** | S3-compatible | Supabase | Images, documents |
 | **Authentication** | Supabase Auth | Supabase | User management |
-| **Payments** | Razorpay | - | UPI/Cash tracking |
+| **Payments** | Manual (V2: Razorpay) | - | Manual confirmation |
 | **Notifications** | Firebase Cloud Messaging | - | Push notifications |
 | **Email** | SendGrid/Resend | - | Transactional emails |
 | **Monitoring** | Sentry | - | Error tracking |
+| **Cron Jobs** | Go cron (robfig/cron) | Railway/VPS | Auto-close orders |
 
-**Total Platforms to Manage:** 5 (Vercel, Supabase, Razorpay, Email Provider, Sentry)
+**Total Platforms to Manage:** 5 (Railway/VPS, Vercel, Supabase, Email Provider, Sentry)
+**V2 Platforms:** Razorpay (in-app payments)
 
 ---
 
@@ -89,11 +91,11 @@
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    VERCEL (Node.js Backend)                      │
+│                   RAILWAY/VPS (Go Backend)                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │              Express.js API Server                        │  │
+│  │          Go HTTP API Server (Gin/Chi Framework)           │  │
 │  ├───────────────────────────────────────────────────────────┤  │
 │  │                                                           │  │
 │  │  /api/v1/                                                │  │
@@ -276,185 +278,273 @@ lib/
 
 ### 3.2 Backend API Server
 
-**Technology:** Node.js 20 LTS + Express.js
+**Technology:** Go 1.21+
 
-**Why Node.js:**
-- ✅ JavaScript/TypeScript across frontend and backend
-- ✅ Excellent ecosystem (npm)
-- ✅ Perfect for Vercel serverless functions
-- ✅ Non-blocking I/O for high concurrency
-- ✅ Easy to scale
-- ✅ Large talent pool in India
+**Why Go:**
+- ✅ High performance and low memory footprint
+- ✅ Built-in concurrency (goroutines) perfect for high-traffic APIs
+- ✅ Static typing and compile-time error checking
+- ✅ Fast compilation and deployment
+- ✅ Excellent standard library (net/http, crypto, json)
+- ✅ Easy deployment as single binary
+- ✅ Strong ecosystem for web services
 
-**Framework:** Express.js 4.x
+**Framework:** Gin or Chi (recommended: Gin for performance)
 
 **Core Dependencies:**
-```json
-{
-  "dependencies": {
-    "express": "^4.18.2",
-    "typescript": "^5.3.0",
-    "@types/express": "^4.17.21",
+```go
+// go.mod
+module society-service-api
 
-    "@supabase/supabase-js": "^2.38.0",
-    "zod": "^3.22.4",
-    "express-validator": "^7.0.1",
+go 1.21
 
-    "razorpay": "^2.9.2",
-    "node-cron": "^3.0.3",
-    "axios": "^1.6.0",
+require (
+    // Web Framework
+    github.com/gin-gonic/gin v1.9.1
 
-    "helmet": "^7.1.0",
-    "cors": "^2.8.5",
-    "compression": "^1.7.4",
-    "express-rate-limit": "^7.1.5",
+    // Database & Supabase
+    github.com/jackc/pgx/v5 v5.5.0
+    github.com/supabase-community/gotrue-go v1.0.0
+    github.com/supabase-community/storage-go v0.7.0
 
-    "winston": "^3.11.0",
-    "dotenv": "^16.3.1",
+    // Validation
+    github.com/go-playground/validator/v10 v10.16.0
 
-    "resend": "^3.0.0",
-    "@sentry/node": "^7.91.0",
-    "@sentry/profiling-node": "^1.3.0"
-  }
-}
+    // Environment & Config
+    github.com/joho/godotenv v1.5.1
+    github.com/spf13/viper v1.18.1
+
+    // Cron Jobs
+    github.com/robfig/cron/v3 v3.0.1
+
+    // HTTP Client
+    github.com/go-resty/resty/v2 v2.11.0
+
+    // Middleware
+    github.com/gin-contrib/cors v1.5.0
+    github.com/gin-contrib/gzip v0.0.6
+
+    // Logging
+    github.com/sirupsen/logrus v1.9.3
+    go.uber.org/zap v1.26.0
+
+    // Error Tracking
+    github.com/getsentry/sentry-go v0.25.0
+
+    // Email
+    github.com/resend/resend-go/v2 v2.0.0
+
+    // Payments (V2)
+    github.com/razorpay/razorpay-go v1.2.0
+
+    // Testing
+    github.com/stretchr/testify v1.8.4
+)
 ```
 
 **Project Structure:**
 ```
 backend/
-├── api/
-│   ├── index.ts                    # Vercel entry point
-│   └── v1/
-│       ├── auth/
-│       │   ├── login.ts
-│       │   ├── verify-otp.ts
-│       │   └── refresh-token.ts
-│       │
-│       ├── orders/
-│       │   ├── create.ts           # POST /api/v1/orders
-│       │   ├── get.ts              # GET /api/v1/orders/:id
-│       │   ├── list.ts             # GET /api/v1/orders
-│       │   ├── update-status.ts    # PATCH /api/v1/orders/:id/status
-│       │   └── cancel.ts           # POST /api/v1/orders/:id/cancel
-│       │
-│       ├── vendors/
-│       │   ├── register.ts
-│       │   ├── rate-cards.ts
-│       │   ├── services.ts
-│       │   └── analytics.ts
-│       │
-│       ├── categories/
-│       │   ├── list.ts
-│       │   └── services.ts
-│       │
-│       └── admin/
-│           ├── societies.ts
-│           ├── subscriptions.ts
-│           └── reports.ts
+├── cmd/
+│   └── api/
+│       └── main.go                 # Application entry point
 │
-├── src/
+├── internal/
+│   ├── handlers/                   # HTTP handlers (controllers)
+│   │   ├── auth/
+│   │   │   ├── login.go
+│   │   │   ├── verify_otp.go
+│   │   │   └── refresh_token.go
+│   │   │
+│   │   ├── orders/
+│   │   │   ├── create.go           # POST /api/v1/orders
+│   │   │   ├── get.go              # GET /api/v1/orders/:id
+│   │   │   ├── list.go             # GET /api/v1/orders
+│   │   │   ├── update_status.go    # PATCH /api/v1/orders/:id/status
+│   │   │   └── cancel.go           # POST /api/v1/orders/:id/cancel
+│   │   │
+│   │   ├── vendors/
+│   │   │   ├── register.go
+│   │   │   ├── rate_cards.go
+│   │   │   ├── services.go
+│   │   │   └── analytics.go
+│   │   │
+│   │   ├── categories/
+│   │   │   ├── list.go
+│   │   │   └── services.go
+│   │   │
+│   │   └── admin/
+│   │       ├── societies.go
+│   │       ├── subscriptions.go
+│   │       └── reports.go
+│   │
 │   ├── middleware/
-│   │   ├── auth.ts                 # JWT verification
-│   │   ├── validate.ts             # Request validation
-│   │   ├── error-handler.ts        # Global error handling
-│   │   └── rate-limit.ts           # Rate limiting
+│   │   ├── auth.go                 # JWT verification
+│   │   ├── validate.go             # Request validation
+│   │   ├── error_handler.go        # Global error handling
+│   │   ├── rate_limit.go           # Rate limiting
+│   │   └── cors.go                 # CORS configuration
 │   │
 │   ├── services/
-│   │   ├── order-service.ts        # Order business logic
-│   │   ├── pricing-service.ts      # Price calculation
-│   │   ├── workflow-service.ts     # Service workflows
-│   │   ├── payment-service.ts      # Payment handling
-│   │   └── notification-service.ts # Send notifications
+│   │   ├── order_service.go        # Order business logic
+│   │   ├── pricing_service.go      # Price calculation
+│   │   ├── workflow_service.go     # Service workflows
+│   │   ├── payment_service.go      # Payment handling
+│   │   └── notification_service.go # Send notifications
 │   │
 │   ├── repositories/
-│   │   ├── order-repository.ts     # Database operations
-│   │   ├── vendor-repository.ts
-│   │   └── user-repository.ts
+│   │   ├── order_repository.go     # Database operations
+│   │   ├── vendor_repository.go
+│   │   └── user_repository.go
 │   │
 │   ├── models/
-│   │   ├── order.model.ts
-│   │   ├── vendor.model.ts
-│   │   └── user.model.ts
+│   │   ├── order.go
+│   │   ├── vendor.go
+│   │   ├── user.go
+│   │   └── response.go             # Standard API responses
 │   │
-│   ├── utils/
-│   │   ├── supabase.ts             # Supabase client
-│   │   ├── logger.ts               # Winston logger
-│   │   └── helpers.ts
+│   ├── database/
+│   │   ├── postgres.go             # PostgreSQL connection
+│   │   └── migrations/             # SQL migration files
 │   │
-│   └── types/
-│       ├── api.types.ts
-│       └── database.types.ts       # Generated from Supabase
+│   ├── config/
+│   │   └── config.go               # Configuration management
+│   │
+│   └── utils/
+│       ├── logger.go               # Structured logging
+│       ├── validator.go            # Input validation
+│       └── helpers.go
 │
-├── vercel.json                     # Vercel configuration
-├── package.json
-└── tsconfig.json
+├── pkg/                            # Public packages
+│   ├── supabase/
+│   │   ├── client.go               # Supabase client wrapper
+│   │   └── auth.go                 # Supabase auth helpers
+│   │
+│   └── errors/
+│       └── errors.go               # Custom error types
+│
+├── scripts/
+│   └── migrate.sh                  # Database migration script
+│
+├── .env.example
+├── Dockerfile
+├── docker-compose.yml              # For local development
+├── go.mod
+├── go.sum
+└── Makefile                        # Build and deployment commands
 ```
 
 **Example API Endpoint:**
-```typescript
-// api/v1/orders/create.ts
-import { Request, Response } from 'express';
-import { z } from 'zod';
-import { OrderService } from '@/services/order-service';
-import { authenticate } from '@/middleware/auth';
-import { validate } from '@/middleware/validate';
+```go
+// internal/handlers/orders/create.go
+package orders
 
-const createOrderSchema = z.object({
-  laundry_id: z.string().uuid(),
-  society_id: z.number().int(),
-  items: z.array(z.object({
-    service_id: z.number().int(),
-    item_name: z.string(),
-    quantity: z.number().int().positive(),
-    unit_price: z.number().positive()
-  })),
-  pickup_datetime: z.string().datetime(),
-  pickup_address: z.string(),
-  delivery_preference: z.enum(['SINGLE', 'PARTIAL'])
-});
+import (
+    "net/http"
+    "society-service-api/internal/models"
+    "society-service-api/internal/services"
+    "society-service-api/internal/middleware"
 
-export default authenticate(
-  validate(createOrderSchema),
-  async (req: Request, res: Response) => {
-    try {
-      const userId = req.user.id; // From auth middleware
-      const orderData = req.body;
+    "github.com/gin-gonic/gin"
+)
 
-      // Business logic in service layer
-      const result = await OrderService.createOrder(userId, orderData);
+type CreateOrderRequest struct {
+    VendorID           string      `json:"vendor_id" binding:"required,uuid"`
+    SocietyID          int         `json:"society_id" binding:"required,min=1"`
+    Items              []OrderItem `json:"items" binding:"required,min=1,dive"`
+    PickupDatetime     string      `json:"pickup_datetime" binding:"required"`
+    PickupAddress      string      `json:"pickup_address" binding:"required"`
+    DeliveryPreference string      `json:"delivery_preference" binding:"required,oneof=SINGLE PARTIAL"`
+}
 
-      res.status(201).json({
-        success: true,
-        data: result
-      });
-    } catch (error) {
-      res.status(400).json({
-        success: false,
-        error: error.message
-      });
+type OrderItem struct {
+    ServiceID  int     `json:"service_id" binding:"required,min=1"`
+    ItemName   string  `json:"item_name" binding:"required"`
+    Quantity   int     `json:"quantity" binding:"required,min=1"`
+    UnitPrice  float64 `json:"unit_price" binding:"required,min=0"`
+}
+
+func CreateOrder(orderService *services.OrderService) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Get user ID from auth middleware
+        userID := middleware.GetUserID(c)
+
+        var req CreateOrderRequest
+        if err := c.ShouldBindJSON(&req); err != nil {
+            c.JSON(http.StatusBadRequest, models.ErrorResponse{
+                Success: false,
+                Error: models.Error{
+                    Code:    "INVALID_REQUEST",
+                    Message: "Invalid request data",
+                    Details: map[string]interface{}{"error": err.Error()},
+                },
+            })
+            return
+        }
+
+        // Business logic in service layer
+        order, err := orderService.CreateOrder(c.Request.Context(), userID, req)
+        if err != nil {
+            c.JSON(http.StatusBadRequest, models.ErrorResponse{
+                Success: false,
+                Error: models.Error{
+                    Code:    "ORDER_CREATION_FAILED",
+                    Message: err.Error(),
+                },
+            })
+            return
+        }
+
+        c.JSON(http.StatusCreated, models.SuccessResponse{
+            Success: true,
+            Data:    order,
+        })
     }
-  }
-);
+}
 ```
 
 **Service Layer Example:**
-```typescript
-// src/services/order-service.ts
-import { OrderRepository } from '@/repositories/order-repository';
-import { PricingService } from './pricing-service';
-import { WorkflowService } from './workflow-service';
-import { NotificationService } from './notification-service';
+```go
+// internal/services/order_service.go
+package services
 
-export class OrderService {
-  static async createOrder(userId: string, orderData: any) {
+import (
+    "context"
+    "errors"
+    "society-service-api/internal/models"
+    "society-service-api/internal/repositories"
+)
+
+type OrderService struct {
+    orderRepo        *repositories.OrderRepository
+    pricingService   *PricingService
+    workflowService  *WorkflowService
+    notificationSvc  *NotificationService
+}
+
+func NewOrderService(
+    orderRepo *repositories.OrderRepository,
+    pricingService *PricingService,
+    workflowService *WorkflowService,
+    notificationSvc *NotificationService,
+) *OrderService {
+    return &OrderService{
+        orderRepo:       orderRepo,
+        pricingService:  pricingService,
+        workflowService: workflowService,
+        notificationSvc: notificationSvc,
+    }
+}
+
+func (s *OrderService) CreateOrder(ctx context.Context, userID string, req CreateOrderRequest) (*models.Order, error) {
     // 1. Validate vendor availability
-    const vendor = await OrderRepository.getVendorAvailability(
-      orderData.laundry_id,
-      orderData.pickup_datetime
-    );
+    vendor, err := s.orderRepo.GetVendorAvailability(ctx, req.VendorID, req.PickupDatetime)
+    if err != nil {
+        return nil, err
+    }
 
-    if (!vendor.is_available) {
-      throw new Error('Vendor not available at requested time');
+    if !vendor.IsAvailable {
+        return nil, errors.New("vendor not available at requested time")
     }
 
     // 2. Calculate pricing (business logic)
@@ -627,38 +717,68 @@ export const getSocieties = async () => {
 
 ---
 
-## 4. Backend Services (Node.js on Vercel)
+## 4. Backend Services (Go on Railway)
 
-### 4.1 Vercel Configuration
+### 4.1 Railway/Server Configuration
 
-**vercel.json:**
-```json
-{
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/**/*.ts",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/v1/(.*)",
-      "dest": "/api/$1"
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production",
-    "SUPABASE_URL": "@supabase-url",
-    "SUPABASE_ANON_KEY": "@supabase-anon-key",
-    "SUPABASE_SERVICE_KEY": "@supabase-service-key",
-    "JWT_SECRET": "@jwt-secret",
-    "RAZORPAY_KEY_ID": "@razorpay-key-id",
-    "RAZORPAY_KEY_SECRET": "@razorpay-key-secret",
-    "RESEND_API_KEY": "@resend-api-key",
-    "SENTRY_DSN": "@sentry-dsn"
-  }
-}
+**Dockerfile:**
+```dockerfile
+# Build stage
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/api ./cmd/api
+
+# Runtime stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# Copy the binary from builder
+COPY --from=builder /app/bin/api ./
+
+# Expose port
+EXPOSE 8080
+
+# Run the binary
+CMD ["./api"]
+```
+
+**Environment Variables:**
+```bash
+# .env.example
+PORT=8080
+ENV=production
+
+# Database
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_KEY=your-service-key
+DATABASE_URL=postgresql://postgres:[password]@db.your-project.supabase.co:5432/postgres
+
+# Authentication
+JWT_SECRET=your-jwt-secret
+JWT_EXPIRY=24h
+
+# External Services
+RAZORPAY_KEY_ID=your-razorpay-key-id
+RAZORPAY_KEY_SECRET=your-razorpay-key-secret
+RESEND_API_KEY=your-resend-api-key
+SENTRY_DSN=your-sentry-dsn
+
+# Logging
+LOG_LEVEL=info
 ```
 
 ### 4.2 API Design Patterns
@@ -1343,11 +1463,12 @@ export default function SocietiesPage() {
 ### 7.1 Supabase Services Used
 
 **PostgreSQL Database:**
-- Primary data store
+- Primary data store (PostgreSQL 15+)
 - All tables, relationships, constraints
 - Row Level Security (RLS) for data isolation
 - Database functions and triggers
 - Full-text search capabilities
+- **ltree extension** for hierarchical tree structures (society hierarchy model)
 
 **Supabase Auth:**
 - Phone-based OTP authentication
@@ -1404,6 +1525,42 @@ export class OrderRepository {
     return data;
   }
 }
+```
+
+**PostgreSQL Extensions Used:**
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";      -- UUID generation
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";       -- Encryption
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";        -- Full-text search
+CREATE EXTENSION IF NOT EXISTS "btree_gin";      -- GIN indexes
+CREATE EXTENSION IF NOT EXISTS "ltree";          -- Hierarchical trees
+```
+
+**ltree Extension for Generic Hierarchy:**
+
+The `ltree` extension is critical for the flexible society hierarchy model:
+
+- **Purpose:** Efficiently store and query tree structures (society → building → floor → unit)
+- **Path Format:** Materialized paths like `1.2.4.6` (society.building.floor.unit)
+- **Operators:**
+  - `<@` : Path is ancestor (e.g., `'1.2.4.6' <@ '1.2'` checks if unit is in Building A)
+  - `@>` : Path is descendant
+  - `~` : Pattern matching
+- **Indexes:** GIST indexes on ltree columns enable fast tree traversal
+- **Benefits:**
+  - O(log n) ancestor/descendant queries
+  - No recursive CTEs needed
+  - Automatic path validation
+
+**Example Query:**
+```sql
+-- Find all vendors assigned to resident's hierarchy path
+SELECT v.*
+FROM vendors v
+JOIN vendor_service_areas vsa ON v.vendor_id = vsa.vendor_id
+JOIN hierarchy_nodes hn ON vsa.node_id = hn.node_id
+WHERE resident_unit_path <@ hn.path;  -- Fast ltree comparison
 ```
 
 **RLS Policies (Defense in Depth):**
@@ -2367,54 +2524,74 @@ Recommended: Start with free tier, upgrade to Team when needed
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 10.2 Backend API Deployment (Vercel)
+### 10.2 Backend API Deployment (Railway/VPS)
 
-**Setup:**
+**Option 1: Railway.app (Recommended for MVP)**
 
-1. **Connect GitHub repository to Vercel**
-2. **Configure environment variables** in Vercel dashboard:
+1. **Connect GitHub repository to Railway**
+2. **Configure environment variables** in Railway dashboard:
    ```
+   PORT=8080
+   ENV=production
    SUPABASE_URL=https://xxx.supabase.co
    SUPABASE_SERVICE_KEY=xxx
+   DATABASE_URL=postgresql://...
    JWT_SECRET=xxx
    RAZORPAY_KEY_ID=xxx
    RAZORPAY_KEY_SECRET=xxx
    FCM_SERVER_KEY=xxx
    ```
 
-3. **vercel.json configuration:**
-   ```json
-   {
-     "version": 2,
-     "builds": [
-       {
-         "src": "api/**/*.ts",
-         "use": "@vercel/node"
-       }
-     ],
-     "routes": [
-       {
-         "src": "/api/v1/(.*)",
-         "dest": "/api/$1"
-       }
-     ]
-   }
-   ```
+3. **Railway will auto-detect Dockerfile and deploy**
 
 4. **Deploy:**
    ```bash
    # Automatic on git push to main
    git push origin main
 
-   # Or manual
-   vercel --prod
+   # Or use Railway CLI
+   railway up
+   ```
+
+**Option 2: VPS (DigitalOcean/AWS EC2)**
+
+1. **Build Docker image:**
+   ```bash
+   docker build -t society-api:latest .
+   ```
+
+2. **Run container:**
+   ```bash
+   docker run -d \
+     -p 8080:8080 \
+     --env-file .env \
+     --name society-api \
+     society-api:latest
+   ```
+
+3. **Setup reverse proxy (Nginx):**
+   ```nginx
+   server {
+       listen 80;
+       server_name api.yourapp.com;
+
+       location / {
+           proxy_pass http://localhost:8080;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+       }
+   }
+   ```
+
+4. **Setup SSL with Let's Encrypt:**
+   ```bash
+   certbot --nginx -d api.yourapp.com
    ```
 
 **URL Structure:**
 ```
 Production: https://api.yourapp.com/api/v1/*
 Staging: https://api-staging.yourapp.com/api/v1/*
-Preview: https://api-pr-123.yourapp.vercel.app/api/v1/*
 ```
 
 ### 10.3 Admin Web Deployment (Vercel)

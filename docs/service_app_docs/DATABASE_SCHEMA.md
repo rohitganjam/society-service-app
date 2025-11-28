@@ -57,7 +57,17 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";      -- UUID generation
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";       -- Encryption
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";        -- Full-text search
 CREATE EXTENSION IF NOT EXISTS "btree_gin";      -- GIN indexes
+CREATE EXTENSION IF NOT EXISTS "ltree";          -- Hierarchical tree structures
 ```
+
+**Note on ltree:**
+The `ltree` extension provides efficient storage and querying of hierarchical tree structures. It enables:
+- Fast ancestor/descendant queries using tree-specific operators (`<@`, `@>`, `~`)
+- Automatic path validation
+- Specialized indexes for tree traversal (GIST indexes)
+- Better performance than recursive CTEs for large hierarchies
+
+This extension is used for the generic society hierarchy model (`hierarchy_nodes` table).
 
 ---
 
@@ -176,7 +186,7 @@ deleted_at TIMESTAMP                        -- Soft delete
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
-│         USER MANAGEMENT, MULTI-SOCIETY & UNIFIED 4-LEVEL HIERARCHY       │
+│    USER MANAGEMENT, MULTI-SOCIETY & GENERIC HIERARCHICAL STRUCTURE      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  ┌──────────────┐                              ┌──────────────┐         │
@@ -187,90 +197,95 @@ deleted_at TIMESTAMP                        -- Soft delete
 │  │ • user_type  │                              │ • user_id(FK)│         │
 │  │ • is_verified│                              │ • society_id │         │
 │  └──────────────┘                              │   (FK)       │         │
-│         │                                       │ • group_id   │         │
-│         │                                       │   (FK)       │         │
-│         │                                       │ • unit_type  │         │
-│         │                                       │ • flat_number│         │
-│         │ 1                                     │ • house_num  │         │
-│         │                                       │ • floor      │         │
-│         ▼ ∞                                     │ • is_primary │         │
-│  ┌──────────────┐                              │ • is_active  │         │
-│  │   vendors    │                              │ • verification         │
-│  │ ─────────────│                              │   _status    │         │
-│  │ • vendor_id  │                              └──────┬───────┘         │
+│         │                                       │ • unit_node_ │         │
+│         │                                       │   id (FK)    │         │
+│         │ 1                                     │ • is_primary │         │
+│         │                                       │ • is_active  │         │
+│         ▼ ∞                                     │ • verification         │
+│  ┌──────────────┐                              │   _status    │         │
+│  │   vendors    │                              └──────┬───────┘         │
+│  │ ─────────────│                                     │                 │
+│  │ • vendor_id  │                                     │ ∞               │
 │  │   (PK, FK)   │                                     │                 │
-│  │ • business_  │                                     │ ∞               │
-│  │   name       │                                     │                 │
-│  │ • store_addr │                                     │ 1               │
-│  └──────┬───────┘                                     ▼                 │
-│         │                                       ┌──────────────┐         │
-│         │ 1                                     │  societies   │         │
-│         │                                       │ ─────────────│         │
-│         ▼ ∞                                     │ • society_id │         │
-│  ┌──────────────┐                              │   (PK)       │         │
-│  │ vendor_      │                              │ • name       │         │
-│  │  services    │                              │ • society_   │         │
-│  │ ─────────────│                              │   type       │         │
-│  │ • vendor_id  │                              │ • total_flats│         │
-│  │ • service_id │                              │ • total_     │         │
-│  │   (FK)       │                              │   houses     │         │
-│  │ • turnaround │                              └───┬───┬──────┘         │
-│  └──────┬───────┘                                  │   │                │
-│         │                                      1   │   │ 1              │
-│         │ 1                                   ┌────┘   └────┐           │
-│         │                                     │             │           │
-│         ▼ ∞                                   ▼ ∞           ▼ ∞         │
-│  ┌──────────────┐            ┌────────────────┐     ┌───────────────┐  │
-│  │ rate_cards   │            │ society_       │     │ society_groups│  │
-│  │ ─────────────│            │  roster        │     │ ──────────────│  │
-│  │ • rate_card_id            │ ─────────────  │     │ • group_id(PK)│  │
-│  │ • vendor_id  │            │ • roster_id    │     │ • society_id  │  │
-│  │ • society_id │            │ • society_id   │     │   (FK)        │  │
-│  │   (FK)       │            │   (FK)         │     │ • group_name  │  │
-│  │ • is_published            │ • group_id     │     │ • group_type  │  │
-│  └──────┬───────┘            │   (FK)         │     │ • group_code  │  │
-│         │                     │ • phone        │     │ • total_units │  │
-│         │ 1                   │ • unit_type    │     │ • total_floors│  │
-│         │                     │ • flat_number  │     └───────┬───────┘  │
-│         ▼ ∞                   │ • house_num    │             │          │
-│  ┌──────────────┐            │ • floor        │             │ ∞        │
-│  │ rate_card_   │            └────────────────┘             │          │
-│  │   items      │                                      1    ▼          │
-│  │ ─────────────│                              ┌──────────────────┐    │
-│  │ • item_id    │                              │ vendor_service_  │    │
-│  │ • rate_card_id                              │   areas          │    │
-│  │   (FK)       │      ┌───────────────────────┤ ─────────────────│    │
-│  │ • service_id │      │                       │ • assignment_id  │    │
-│  │ • item_name  │      │ ∞                     │   (PK)           │    │
-│  │ • price      │      │                       │ • vendor_id (FK) │    │
-│  └──────────────┘      │                       │ • society_id(FK) │    │
-│                         │                       │ • assignment_    │    │
-│  ┌──────────────┐      │                       │   type           │    │
-│  │  vendors     │──────┘                       │ • group_id       │    │
-│  │ ─────────────│ 1                            │   (FK, nullable) │    │
-│  │ • vendor_id  │                              │ • is_active      │    │
-│  │   (PK)       │                              └──────────────────┘    │
-│  └──────────────┘                                                      │
+│  │ • business_  │                                     │ 1               │
+│  │   name       │                                     ▼                 │
+│  │ • store_addr │                              ┌──────────────┐         │
+│  └──────┬───────┘                              │  societies   │         │
+│         │                                      │ ─────────────│         │
+│         │ 1                                    │ • society_id │         │
+│         │                                      │   (PK)       │         │
+│         ▼ ∞                                    │ • name       │         │
+│  ┌──────────────┐                             │ • society_   │         │
+│  │ vendor_      │                              │   type       │         │
+│  │  services    │                              └───┬──────────┘         │
+│  │ ─────────────│                                  │                    │
+│  │ • vendor_id  │                                  │ 1                  │
+│  │ • service_id │                                  │                    │
+│  │   (FK)       │                                  ▼ ∞                  │
+│  │ • turnaround │                       ┌────────────────────┐          │
+│  └──────┬───────┘                       │ hierarchy_nodes    │          │
+│         │                                │ ──────────────────│          │
+│         │ 1                              │ • node_id (PK)    │          │
+│         │                                │ • society_id (FK) │          │
+│         ▼ ∞                              │ • parent_node_id  │◄─┐       │
+│  ┌──────────────┐                       │   (FK, self-ref)  │  │       │
+│  │ rate_cards   │                       │ • node_type       │  │       │
+│  │ ─────────────│                       │ • node_code       │  │       │
+│  │ • rate_card_id                       │ • node_name       │  │       │
+│  │ • vendor_id  │                       │ • path (ltree)    │  │       │
+│  │ • society_id │                       │ • level_depth     │  │       │
+│  │   (FK)       │                       └────────┬───────────┘  │       │
+│  │ • is_published                               │              │       │
+│  └──────┬───────┘                               │ 1            │       │
+│         │                                        │              │       │
+│         │ 1                          ┌───────────┴────┐         │       │
+│         │                            │                │         │       │
+│         ▼ ∞                          ▼ ∞              ▼ ∞       │       │
+│  ┌──────────────┐    ┌────────────────────┐  ┌──────────────────────┐  │
+│  │ rate_card_   │    │ society_roster     │  │ vendor_service_areas │  │
+│  │   items      │    │ ──────────────────│  │ ─────────────────────│  │
+│  │ ─────────────│    │ • roster_id (PK)  │  │ • assignment_id (PK) │  │
+│  │ • item_id    │    │ • society_id (FK) │  │ • vendor_id (FK)     │  │
+│  │ • rate_card_id    │ • phone           │  │ • society_id (FK)    │  │
+│  │   (FK)       │    │ • resident_name   │  │ • node_id (FK,       │  │
+│  │ • service_id │    │ • unit_node_id    │  │   nullable)          │  │
+│  │ • item_name  │    │   (FK)            │  │ • is_active          │  │
+│  │ • price      │    │ • is_active       │  └──────────────────────┘  │
+│  └──────────────┘    └────────────────────┘                            │
 │                                                                          │
-│  **Unified 4-Level Hierarchy:**                                         │
-│  - Society → Groups (Buildings/Phases) → Units (Flats/Houses) → Floors  │
-│  - Single society_groups table for both apartments and layouts          │
-│  - group_type: BUILDING, TOWER, BLOCK, WING, PHASE, SECTION, ZONE      │
+│  **Generic Hierarchical Model:**                                        │
+│  - hierarchy_nodes table stores flexible tree structure                 │
+│  - Each node can have children (self-referencing parent_node_id)        │
+│  - node_type: SOCIETY, BUILDING, TOWER, PHASE, FLOOR, UNIT, etc.       │
+│  - path (ltree): Materialized path for fast ancestor/descendant queries │
+│  - Supports ANY society structure without schema changes                │
 │                                                                          │
-│  **Vendor Assignment (Simplified):**                                    │
-│  - SOCIETY: Vendor serves entire society (all groups)                   │
-│  - GROUP: Vendor assigned to specific group(s) - works for both         │
-│    buildings (apartments) and phases (layouts)                          │
-│  - Residents linked to groups via group_id                              │
-│  - Default vendor filtering based on resident's group                   │
-│  - Residents can override to view all vendors in society                │
+│  **Examples:**                                                           │
+│  - Apartments: Society → Building → Floor → Unit                        │
+│  - Layouts: Society → Phase → House → Floor                             │
+│  - Mixed: Society → Wing → Unit (no intermediate floors)                │
+│  - Custom: Any hierarchy depth and naming                               │
 │                                                                          │
-│  **Notes:**                                                              │
-│  - residents table supports multi-society (one user, multiple residences)│
-│  - Only one is_primary per user, only one is_active per user (context)  │
-│  - Supports FLAT and HOUSE unit types uniformly via group_id            │
-│  - Multiple households per unit supported via different floor values    │
-│  - society_roster includes group_id for instant verification            │
+│  **Vendor Assignment (Ultra-Flexible):**                                │
+│  - NULL node_id: Vendor serves entire society                           │
+│  - Specific node_id: Vendor serves that node + all descendants          │
+│  - Examples:                                                             │
+│    • node_id=2 (Building A) → serves all floors/units in Building A    │
+│    • node_id=4 (Floor 1) → serves only Floor 1 units                   │
+│    • node_id=6 (Flat A-101) → serves only that specific flat           │
+│                                                                          │
+│  **Resident Filtering:**                                                │
+│  - Find resident's unit_node_id path                                    │
+│  - Show vendors assigned to resident's path ancestors or NULL           │
+│  - Uses ltree path matching: resident_path <@ vendor_assignment_path    │
+│                                                                          │
+│  **Key Benefits:**                                                       │
+│  ✅ Zero schema changes for new society structures                      │
+│  ✅ Flexible vendor assignment to any hierarchy level                   │
+│  ✅ Efficient queries using ltree and path indexes                      │
+│  ✅ Self-documenting structure (path shows full lineage)                │
+│  ✅ Multi-society support for residents (is_primary, is_active flags)   │
+│  ✅ Instant verification via society_roster with unit_node_id           │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 
@@ -498,6 +513,10 @@ CREATE INDEX idx_users_phone ON users(phone);
 CREATE INDEX idx_users_type ON users(user_type);
 CREATE INDEX idx_users_verified ON users(is_verified) WHERE is_verified = true;
 CREATE INDEX idx_users_active ON users(is_active) WHERE is_active = true;
+CREATE INDEX idx_users_fcm_token ON users(fcm_token) WHERE fcm_token IS NOT NULL;  -- Push notification queries
+CREATE INDEX idx_users_email ON users(email) WHERE email IS NOT NULL;              -- Email-based lookup
+CREATE INDEX idx_users_last_login ON users(last_login_at DESC);                    -- Activity reports
+CREATE INDEX idx_users_type_active ON users(user_type, is_active) WHERE is_active = true;  -- Active users by type
 ```
 
 **Sample Data:**
@@ -561,6 +580,8 @@ CREATE INDEX idx_societies_city ON societies(city);
 CREATE INDEX idx_societies_pincode ON societies(pincode);
 CREATE INDEX idx_societies_type ON societies(society_type);
 CREATE INDEX idx_societies_active ON societies(is_active) WHERE is_active = true;
+CREATE INDEX idx_societies_city_status ON societies(city, status) WHERE status = 'ACTIVE';  -- Active societies by city
+CREATE INDEX idx_societies_created_by ON societies(created_by);  -- Admin audit queries
 
 -- Full-text search (includes pincode for better search)
 CREATE INDEX idx_societies_search ON societies USING gin(
@@ -576,9 +597,224 @@ CREATE INDEX idx_societies_search ON societies USING gin(
 
 ---
 
-### 4.3 Residents Table
+### 4.3 Hierarchy Nodes Table
 
-**Purpose:** Resident-society relationships (supports multi-society membership and independent houses)
+**Purpose:** Generic hierarchical structure for all societies (apartments, layouts, mixed-use, future types)
+
+This table provides a flexible, self-defining tree structure that supports any organizational hierarchy without schema changes.
+
+```sql
+CREATE TABLE hierarchy_nodes (
+  node_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  society_id INTEGER NOT NULL REFERENCES societies(society_id) ON DELETE CASCADE,
+  parent_node_id INTEGER REFERENCES hierarchy_nodes(node_id) ON DELETE CASCADE,
+
+  -- Generic node identification
+  node_type VARCHAR(20) NOT NULL,
+    -- Common types: 'SOCIETY', 'BUILDING', 'TOWER', 'BLOCK', 'WING',
+    --               'PHASE', 'SECTION', 'ZONE', 'FLOOR', 'UNIT'
+    -- Extensible: Any custom type can be added
+  node_code VARCHAR(50) NOT NULL,
+    -- Examples: 'A', 'B-101', 'Phase-1', 'Floor-5', 'Villa-3'
+  node_name VARCHAR(100),
+    -- Examples: 'Building A', 'Flat B-101', 'Ground Floor'
+
+  -- Hierarchy tracking
+  level_depth INTEGER NOT NULL DEFAULT 1,
+    -- 1 = top level (society root), 2 = second level, etc.
+    -- Calculated/updated via trigger on insert/update
+
+  -- Materialized path for efficient ancestor/descendant queries
+  path LTREE,
+    -- Full path from root: '1.2.5.12' (node IDs separated by dots)
+    -- Enables fast queries like: WHERE path <@ '1.2' (all descendants of node 2)
+    -- Alternative: VARCHAR(500) if ltree extension unavailable
+
+  -- Optional metadata
+  description TEXT,
+  display_order INTEGER DEFAULT 0,
+    -- For sorting nodes at same level (e.g., Floor 1, Floor 2, Floor 3)
+
+  -- Status
+  is_active BOOLEAN DEFAULT true,
+
+  -- Metadata
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  created_by UUID REFERENCES users(user_id),
+
+  -- Constraints
+  CHECK (level_depth > 0),
+  CHECK (
+    (parent_node_id IS NULL AND level_depth = 1) OR
+    (parent_node_id IS NOT NULL AND level_depth > 1)
+  ),
+
+  -- Prevent duplicate node codes at same level
+  UNIQUE(parent_node_id, node_code)
+);
+
+-- Indexes
+CREATE INDEX idx_nodes_parent ON hierarchy_nodes(parent_node_id);
+CREATE INDEX idx_nodes_society ON hierarchy_nodes(society_id);
+CREATE INDEX idx_nodes_type ON hierarchy_nodes(node_type);
+CREATE INDEX idx_nodes_active ON hierarchy_nodes(is_active) WHERE is_active = true;
+
+-- GIST index for ltree path queries (fast ancestor/descendant lookups)
+CREATE INDEX idx_nodes_path ON hierarchy_nodes USING GIST(path);
+
+-- Composite index for common queries
+CREATE INDEX idx_nodes_society_type ON hierarchy_nodes(society_id, node_type);
+CREATE INDEX idx_nodes_society_parent ON hierarchy_nodes(society_id, parent_node_id);
+CREATE INDEX idx_nodes_code_lookup ON hierarchy_nodes(society_id, node_code, parent_node_id);  -- CRITICAL: Fast node code lookups
+CREATE INDEX idx_nodes_level_depth ON hierarchy_nodes(society_id, level_depth);  -- CRITICAL: Level-based filtering
+CREATE INDEX idx_nodes_display_order ON hierarchy_nodes(parent_node_id, display_order);  -- Sorting sibling nodes
+CREATE INDEX idx_nodes_created_by ON hierarchy_nodes(created_by);  -- Audit queries
+```
+
+**Trigger: Auto-calculate level_depth and path**
+
+```sql
+CREATE OR REPLACE FUNCTION update_hierarchy_node_metadata()
+RETURNS TRIGGER AS $$
+DECLARE
+  parent_depth INTEGER;
+  parent_path LTREE;
+BEGIN
+  IF NEW.parent_node_id IS NULL THEN
+    -- Root node (society level)
+    NEW.level_depth := 1;
+    NEW.path := text2ltree(NEW.node_id::text);
+  ELSE
+    -- Child node: inherit from parent
+    SELECT level_depth, path INTO parent_depth, parent_path
+    FROM hierarchy_nodes
+    WHERE node_id = NEW.parent_node_id;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Parent node % does not exist', NEW.parent_node_id;
+    END IF;
+
+    NEW.level_depth := parent_depth + 1;
+    NEW.path := parent_path || text2ltree(NEW.node_id::text);
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_hierarchy_metadata
+BEFORE INSERT OR UPDATE ON hierarchy_nodes
+FOR EACH ROW
+EXECUTE FUNCTION update_hierarchy_node_metadata();
+```
+
+**Example Data:**
+
+**Apartment Complex:**
+```sql
+-- Level 1: Society root
+INSERT INTO hierarchy_nodes (society_id, parent_node_id, node_type, node_code, node_name, display_order)
+VALUES (1, NULL, 'SOCIETY', 'SOC1', 'Green Valley Apartments', 0);
+-- Result: node_id=1, path='1', level_depth=1
+
+-- Level 2: Buildings
+INSERT INTO hierarchy_nodes (society_id, parent_node_id, node_type, node_code, node_name, display_order)
+VALUES
+  (1, 1, 'BUILDING', 'A', 'Building A', 1),
+  (1, 1, 'TOWER', 'B', 'Tower B', 2);
+-- Result: node_id=2 (path='1.2'), node_id=3 (path='1.3')
+
+-- Level 3: Floors (optional)
+INSERT INTO hierarchy_nodes (society_id, parent_node_id, node_type, node_code, node_name, display_order)
+VALUES
+  (1, 2, 'FLOOR', 'F1', 'Floor 1', 1),
+  (1, 2, 'FLOOR', 'F2', 'Floor 2', 2);
+-- Result: node_id=4 (path='1.2.4'), node_id=5 (path='1.2.5')
+
+-- Level 4: Units (flats)
+INSERT INTO hierarchy_nodes (society_id, parent_node_id, node_type, node_code, node_name, display_order)
+VALUES
+  (1, 4, 'UNIT', 'A-101', 'Flat A-101', 1),
+  (1, 4, 'UNIT', 'A-102', 'Flat A-102', 2),
+  (1, 5, 'UNIT', 'A-201', 'Flat A-201', 1);
+-- Result: node_id=6,7,8 with paths under their floor nodes
+```
+
+**Independent House Layout:**
+```sql
+-- Level 1: Society
+INSERT INTO hierarchy_nodes (society_id, parent_node_id, node_type, node_code, node_name)
+VALUES (2, NULL, 'SOCIETY', 'SOC2', 'Sunrise Villas');
+
+-- Level 2: Phases
+INSERT INTO hierarchy_nodes (society_id, parent_node_id, node_type, node_code, node_name, display_order)
+VALUES
+  (2, 10, 'PHASE', 'P1', 'Phase 1', 1),
+  (2, 10, 'PHASE', 'P2', 'Phase 2', 2);
+
+-- Level 3: Houses (single-story = direct units)
+INSERT INTO hierarchy_nodes (society_id, parent_node_id, node_type, node_code, node_name, display_order)
+VALUES
+  (2, 11, 'UNIT', 'H-101', 'House 101', 101),
+  (2, 11, 'UNIT', 'H-102', 'House 102', 102);
+
+-- For multi-story house: Add floor nodes
+INSERT INTO hierarchy_nodes (society_id, parent_node_id, node_type, node_code, node_name, display_order)
+VALUES
+  (2, 13, 'FLOOR', 'GF', 'Ground Floor', 0),
+  (2, 13, 'FLOOR', 'FF', 'First Floor', 1);
+```
+
+**Common Queries:**
+
+**1. Get all descendants of a node (e.g., all units in Building A):**
+```sql
+SELECT * FROM hierarchy_nodes
+WHERE path <@ (
+  SELECT path FROM hierarchy_nodes WHERE node_id = 2  -- Building A
+)
+AND node_type = 'UNIT';
+```
+
+**2. Get all ancestors of a node (e.g., full address path of Flat A-101):**
+```sql
+SELECT * FROM hierarchy_nodes
+WHERE path @> (
+  SELECT path FROM hierarchy_nodes WHERE node_id = 6  -- Flat A-101
+)
+ORDER BY level_depth;
+```
+
+**3. Get all units at a specific depth (e.g., all flats/houses):**
+```sql
+SELECT * FROM hierarchy_nodes
+WHERE society_id = 1
+  AND node_type = 'UNIT'
+ORDER BY path;
+```
+
+**4. Get sibling nodes (same parent):**
+```sql
+SELECT * FROM hierarchy_nodes
+WHERE parent_node_id = (
+  SELECT parent_node_id FROM hierarchy_nodes WHERE node_id = 6
+)
+ORDER BY display_order;
+```
+
+**Benefits:**
+✅ **Flexibility:** Support any hierarchy (apartments, layouts, mixed, future types)
+✅ **No Schema Changes:** Add levels by inserting nodes, not altering tables
+✅ **Efficient Queries:** ltree provides fast tree traversal
+✅ **Self-Documenting:** Path shows full lineage
+✅ **Extensible:** Custom node types without code changes
+
+---
+
+### 4.4 Residents Table
+
+**Purpose:** Resident-society relationships (supports multi-society membership with generic hierarchy)
 
 ```sql
 CREATE TABLE residents (
@@ -586,28 +822,19 @@ CREATE TABLE residents (
   user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
   society_id INTEGER NOT NULL REFERENCES societies(society_id) ON DELETE CASCADE,
 
-  -- Unit type
-  unit_type VARCHAR(10) NOT NULL CHECK (unit_type IN ('FLAT', 'HOUSE')),
-
-  -- For apartments (FLAT)
-  flat_number VARCHAR(20),
-  tower VARCHAR(10),
-
-  -- For independent houses (HOUSE)
-  house_number VARCHAR(20),
-  street VARCHAR(100),
-
-  -- Common fields
-  floor INTEGER,
-  notes TEXT,
+  -- Reference to unit node in hierarchy (leaf node = flat/house/villa)
+  unit_node_id INTEGER NOT NULL REFERENCES hierarchy_nodes(node_id) ON DELETE CASCADE,
 
   -- Multi-society support
   is_primary BOOLEAN DEFAULT false,
+    -- User's main residence (only one can be true per user)
   is_active BOOLEAN DEFAULT false,
+    -- Currently selected society context (only one can be true per user)
 
   -- Preferences
   preferred_pickup_time TIME,
   default_pickup_address TEXT,
+  notes TEXT,
 
   -- Status
   verification_status VARCHAR(20) DEFAULT 'PENDING'
@@ -621,51 +848,159 @@ CREATE TABLE residents (
   verified_by UUID REFERENCES users(user_id),
 
   -- Constraints
-  CHECK (
-    (unit_type = 'FLAT' AND flat_number IS NOT NULL) OR
-    (unit_type = 'HOUSE' AND house_number IS NOT NULL)
-  ),
-
-  -- Allow multiple households in same unit (different floors)
-  -- Remove the old UNIQUE constraint, add these instead:
-  UNIQUE(society_id, unit_type, flat_number, tower, floor),
-  UNIQUE(society_id, unit_type, house_number, street, floor)
+  UNIQUE(user_id, unit_node_id)
+    -- One user per unit (prevents duplicate residence entries)
 );
 
 -- Indexes
 CREATE INDEX idx_residents_user ON residents(user_id);
 CREATE INDEX idx_residents_society ON residents(society_id);
+CREATE INDEX idx_residents_unit_node ON residents(unit_node_id);
 CREATE INDEX idx_residents_status ON residents(verification_status);
+
+-- Composite indexes for common queries
 CREATE INDEX idx_residents_primary ON residents(user_id, is_primary) WHERE is_primary = true;
 CREATE INDEX idx_residents_active ON residents(user_id, is_active) WHERE is_active = true;
-CREATE INDEX idx_residents_unit_type ON residents(unit_type);
-
--- Composite index for flat lookup
-CREATE INDEX idx_residents_flat_lookup ON residents(society_id, flat_number, tower)
-  WHERE unit_type = 'FLAT';
-
--- Composite index for house lookup
-CREATE INDEX idx_residents_house_lookup ON residents(society_id, house_number, street)
-  WHERE unit_type = 'HOUSE';
+CREATE INDEX idx_residents_society_verified ON residents(society_id, verification_status)
+  WHERE verification_status = 'VERIFIED';
 
 -- Most common query: get user's active verified residence
 CREATE INDEX idx_residents_user_active_verified ON residents(user_id)
   WHERE is_active = true AND verification_status = 'VERIFIED';
+
+-- Composite for vendor filtering (find residents in specific hierarchy path)
+CREATE INDEX idx_residents_society_unit ON residents(society_id, unit_node_id);
+
+-- Optional: Audit trail
+CREATE INDEX idx_residents_verified_by ON residents(verified_by);  -- Admin audit queries
+```
+
+**Triggers: Ensure Only One Primary and One Active Per User**
+
+```sql
+CREATE OR REPLACE FUNCTION enforce_single_primary_residence()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.is_primary = true THEN
+    -- Unset is_primary for all other residences of this user
+    UPDATE residents
+    SET is_primary = false
+    WHERE user_id = NEW.user_id
+      AND resident_id != NEW.resident_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_enforce_single_primary
+AFTER INSERT OR UPDATE ON residents
+FOR EACH ROW
+WHEN (NEW.is_primary = true)
+EXECUTE FUNCTION enforce_single_primary_residence();
+
+CREATE OR REPLACE FUNCTION enforce_single_active_residence()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.is_active = true THEN
+    -- Unset is_active for all other residences of this user
+    UPDATE residents
+    SET is_active = false
+    WHERE user_id = NEW.user_id
+      AND resident_id != NEW.resident_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_enforce_single_active
+AFTER INSERT OR UPDATE ON residents
+FOR EACH ROW
+WHEN (NEW.is_active = true)
+EXECUTE FUNCTION enforce_single_active_residence();
+```
+
+**Example Data:**
+
+```sql
+-- Resident in apartment: Flat A-101
+-- (Assumes hierarchy_nodes node_id=6 is 'Flat A-101')
+INSERT INTO residents (user_id, society_id, unit_node_id, is_primary, is_active, verification_status)
+VALUES ('user-uuid-1', 1, 6, true, true, 'VERIFIED');
+
+-- Resident in independent house: House 101, Ground Floor
+-- (Assumes hierarchy_nodes node_id=15 is 'Ground Floor' under 'House 101')
+INSERT INTO residents (user_id, society_id, unit_node_id, is_primary, is_active, verification_status)
+VALUES ('user-uuid-2', 2, 15, true, true, 'VERIFIED');
+
+-- User with multiple residences (primary in Society 1, secondary in Society 2)
+INSERT INTO residents (user_id, society_id, unit_node_id, is_primary, is_active, verification_status)
+VALUES
+  ('user-uuid-3', 1, 7, true, true, 'VERIFIED'),   -- Flat A-102 (primary, active)
+  ('user-uuid-3', 2, 16, false, false, 'VERIFIED'); -- House 101 First Floor (secondary, inactive)
+```
+
+**Common Queries:**
+
+**1. Get resident's full address path:**
+```sql
+SELECT
+  r.resident_id,
+  u.full_name,
+  r.society_id,
+  s.name AS society_name,
+  hn.node_id,
+  hn.node_code,
+  hn.node_name,
+  hn.path,
+  -- Build full address string
+  (
+    SELECT string_agg(ancestor.node_name, ' / ' ORDER BY ancestor.level_depth)
+    FROM hierarchy_nodes ancestor
+    WHERE ancestor.path @> hn.path
+  ) AS full_address
+FROM residents r
+JOIN users u ON r.user_id = u.user_id
+JOIN societies s ON r.society_id = s.society_id
+JOIN hierarchy_nodes hn ON r.unit_node_id = hn.node_id
+WHERE r.user_id = 'user-uuid-1';
+
+-- Result: "Green Valley Apartments / Building A / Floor 1 / Flat A-101"
+```
+
+**2. Find all residents in a specific building/phase:**
+```sql
+-- Find all residents in Building A (node_id=2)
+SELECT r.*, u.full_name, hn.node_name AS unit_name
+FROM residents r
+JOIN users u ON r.user_id = u.user_id
+JOIN hierarchy_nodes hn ON r.unit_node_id = hn.node_id
+WHERE hn.path <@ (
+  SELECT path FROM hierarchy_nodes WHERE node_id = 2  -- Building A
+)
+AND r.verification_status = 'VERIFIED';
+```
+
+**3. Get user's active residence:**
+```sql
+SELECT r.*, hn.node_code, hn.node_name
+FROM residents r
+JOIN hierarchy_nodes hn ON r.unit_node_id = hn.node_id
+WHERE r.user_id = 'user-uuid'
+  AND r.is_active = true
+  AND r.verification_status = 'VERIFIED';
 ```
 
 **Notes:**
-- Changed from `resident_id UUID PRIMARY KEY` to `resident_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY` to allow multiple residences per user
-- `user_id`: Links to users table (one user can have multiple residences)
-- `unit_type`: 'FLAT' for apartments, 'HOUSE' for independent houses
-- `is_primary`: User's main residence (only one can be true per user)
-- `is_active`: Currently selected society context (only one can be true per user)
-- Multiple households in same house: Same `house_number` but different `floor` values
-- UNIQUE constraints allow multiple floors in same flat/house number
-- Triggers (defined later) ensure only one primary and one active per user
+✅ **Simplified:** Single `unit_node_id` replaces 6 columns (unit_type, flat_number, tower, house_number, street, floor)
+✅ **Flexible:** Works for any society structure without schema changes
+✅ **Consistent:** Same model for apartments, layouts, mixed, future types
+✅ **Efficient:** Leverages hierarchy_nodes indexes for fast path queries
+✅ **Multi-Society:** One user can have multiple residences with primary/active flags
+✅ **Triggers:** Automatically enforce single primary and single active residence per user
 
 ---
 
-### 4.4 Society Roster Table
+### 4.5 Society Roster Table
 
 **Purpose:** Pre-approved resident lists for instant verification during onboarding
 
@@ -676,19 +1011,10 @@ CREATE TABLE society_roster (
   phone VARCHAR(15) NOT NULL,
   resident_name VARCHAR(255),
 
-  -- Unit information
-  unit_type VARCHAR(10) NOT NULL CHECK (unit_type IN ('FLAT', 'HOUSE')),
+  -- Reference to unit node in hierarchy
+  unit_node_id INTEGER NOT NULL REFERENCES hierarchy_nodes(node_id) ON DELETE CASCADE,
 
-  -- For apartments
-  flat_number VARCHAR(20),
-  tower VARCHAR(10),
-
-  -- For independent houses
-  house_number VARCHAR(20),
-  street VARCHAR(100),
-
-  -- Common
-  floor INTEGER,
+  -- Notes
   notes TEXT,
 
   -- Status
@@ -699,16 +1025,14 @@ CREATE TABLE society_roster (
   added_by UUID REFERENCES users(user_id),
   updated_at TIMESTAMP DEFAULT NOW(),
 
-  -- Constraints
-  CHECK (
-    (unit_type = 'FLAT' AND flat_number IS NOT NULL) OR
-    (unit_type = 'HOUSE' AND house_number IS NOT NULL)
-  )
+  -- Prevent duplicate phone entries for same unit in same society
+  UNIQUE(phone, society_id, unit_node_id)
 );
 
 -- Indexes
 CREATE INDEX idx_roster_phone ON society_roster(phone);
 CREATE INDEX idx_roster_society ON society_roster(society_id);
+CREATE INDEX idx_roster_unit_node ON society_roster(unit_node_id);
 CREATE INDEX idx_roster_active ON society_roster(is_active) WHERE is_active = true;
 
 -- Most common query: check if phone exists in roster
@@ -718,19 +1042,62 @@ CREATE INDEX idx_roster_phone_active ON society_roster(phone, is_active)
 -- Lookup by phone and society
 CREATE INDEX idx_roster_lookup ON society_roster(phone, society_id)
   WHERE is_active = true;
+
+-- Exact match query: phone + unit
+CREATE INDEX idx_roster_phone_unit ON society_roster(phone, unit_node_id, is_active)
+  WHERE is_active = true;
+
+-- Audit trail
+CREATE INDEX idx_roster_added_by ON society_roster(added_by);  -- Who added roster entries
+```
+
+**Verification Query:**
+```sql
+-- Check if resident's phone + unit exists in roster for instant verification
+SELECT *
+FROM society_roster
+WHERE phone = $1
+  AND society_id = $2
+  AND unit_node_id = $3
+  AND is_active = true;
+```
+
+**Example Data:**
+```sql
+-- Flat A-101 (node_id=6)
+INSERT INTO society_roster (society_id, phone, resident_name, unit_node_id)
+VALUES (1, '+919876543210', 'Ramesh Kumar', 6);
+
+-- House 101 Ground Floor (node_id=15)
+INSERT INTO society_roster (society_id, phone, resident_name, unit_node_id)
+VALUES (2, '+919876543211', 'Priya Sharma', 15);
+
+-- Same phone, different unit (multi-property owner)
+INSERT INTO society_roster (society_id, phone, resident_name, unit_node_id)
+VALUES
+  (1, '+919876543212', 'Suresh Reddy', 6),  -- Flat A-101
+  (1, '+919876543212', 'Suresh Reddy', 7);  -- Flat A-102
+
+-- Multiple phones for same unit (joint ownership)
+INSERT INTO society_roster (society_id, phone, resident_name, unit_node_id)
+VALUES
+  (1, '+919876543213', 'Amit Patel', 8),     -- Flat A-201
+  (1, '+919876543214', 'Neha Patel', 8);     -- Flat A-201 (co-owner)
 ```
 
 **Notes:**
-- Uploaded by society admins to pre-approve residents
-- One phone can appear multiple times (multiple societies or multiple floors in same society)
-- Enables instant verification during resident onboarding
-- `is_active`: Allows soft-delete of roster entries without removing data
-- No UNIQUE constraint on phone - allows same phone in multiple societies/units
+✅ **Simplified:** Single `unit_node_id` replaces 5 columns (unit_type, flat_number, tower, house_number, street, floor)
+✅ **Flexible:** Works for any society structure
+✅ **Instant Verification:** Exact match on phone + unit enables auto-approval
+✅ **Multi-Property:** Same phone can appear multiple times (different units)
+✅ **Joint Ownership:** Multiple phones can reference same unit
+✅ **Soft Delete:** `is_active` flag for roster management without data loss
 
 **Example Use Cases:**
-1. Family with multiple properties: Same phone in roster for 2 different societies
-2. Multi-floor household: Same phone, same house_number, different floors
-3. Joint ownership: Multiple phones for same flat/house
+1. **Family with multiple properties:** Same phone in roster for different units/societies
+2. **Joint ownership:** Multiple phones for same flat/house (husband + wife)
+3. **Multi-floor household:** If house has separate floors as units, same phone for multiple floor nodes
+4. **Rental management:** Property owner's phone in roster for all their rental units
 
 ---
 
@@ -779,6 +1146,10 @@ CREATE TABLE vendors (
 CREATE INDEX idx_vendors_status ON vendors(approval_status);
 CREATE INDEX idx_vendors_available ON vendors(is_available) WHERE is_available = true;
 CREATE INDEX idx_vendors_rating ON vendors(avg_rating DESC);
+CREATE INDEX idx_vendors_approved_available ON vendors(approval_status, is_available)  -- CRITICAL: Most common query
+  WHERE approval_status = 'APPROVED' AND is_available = true;
+CREATE INDEX idx_vendors_approved_by ON vendors(approved_by);  -- Admin audit queries
+CREATE INDEX idx_vendors_total_orders ON vendors(total_orders DESC);  -- Sorting by experience
 
 -- Full-text search
 CREATE INDEX idx_vendors_search ON vendors USING gin(
@@ -815,89 +1186,16 @@ CREATE TABLE vendor_societies (
 CREATE INDEX idx_vendor_societies_vendor ON vendor_societies(vendor_id);
 CREATE INDEX idx_vendor_societies_society ON vendor_societies(society_id);
 CREATE INDEX idx_vendor_societies_status ON vendor_societies(approval_status);
+CREATE INDEX idx_vendor_societies_approved ON vendor_societies(society_id, vendor_id, approval_status)  -- CRITICAL: Finding approved vendors
+  WHERE approval_status = 'APPROVED';
+CREATE INDEX idx_vendor_societies_approved_by ON vendor_societies(approved_by);  -- Admin audit queries
 ```
 
 ---
 
-### 4.6 Society Groups Table (Unified 4-Level Hierarchy)
+### 4.6 Vendor Service Area Assignments Table
 
-**Purpose:** Unified grouping structure supporting 4-level hierarchy: Society → Groups → Units → Floors
-
-```sql
-CREATE TABLE society_groups (
-  group_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  society_id INTEGER NOT NULL REFERENCES societies(society_id) ON DELETE CASCADE,
-  group_name VARCHAR(100) NOT NULL,
-  group_code VARCHAR(20),
-  group_type VARCHAR(20) NOT NULL
-    CHECK (group_type IN ('BUILDING', 'BLOCK', 'TOWER', 'WING', 'PHASE', 'SECTION', 'ZONE')),
-  description TEXT,
-
-  -- Stats (applicable based on society_type)
-  total_units INTEGER,      -- Total flats for apartments OR total houses for layouts
-  total_floors INTEGER,     -- For buildings/towers
-
-  -- Status
-  is_active BOOLEAN DEFAULT true,
-
-  -- Metadata
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  created_by UUID REFERENCES users(user_id),
-
-  UNIQUE(society_id, group_name)
-);
-
--- Indexes
-CREATE INDEX idx_groups_society ON society_groups(society_id);
-CREATE INDEX idx_groups_type ON society_groups(group_type);
-CREATE INDEX idx_groups_active ON society_groups(is_active) WHERE is_active = true;
-```
-
-**Notes:**
-- **Unified table** for both apartment and layout societies
-- **Flexible naming:** Supports "Building", "Phase", "Tower", "Block", "Wing", "Section", "Zone"
-- **For Apartments:** `group_type` = 'BUILDING', 'BLOCK', 'TOWER', or 'WING'
-- **For Layouts:** `group_type` = 'PHASE', 'SECTION', or 'ZONE'
-- `total_units`: Number of flats (apartments) OR houses (layouts) in this group
-- `total_floors`: Only applicable for multi-story buildings
-
-**4-Level Hierarchy Examples:**
-
-**Apartments:**
-```
-Society → Building A → Flat A-101 → Floor 1
-Society → Building A → Flat A-101 → Floor 2
-Society → Tower B → Flat B-205 → (no floors - single household)
-```
-
-**Layouts:**
-```
-Society → Phase 1 → House #101 → Ground Floor
-Society → Phase 1 → House #101 → First Floor
-Society → Phase 2 → House #205 → (no floors - single household)
-```
-
-**Example Data:**
-```sql
--- Apartment society
-INSERT INTO society_groups (society_id, group_name, group_code, group_type, total_units, total_floors)
-VALUES
-  (1, 'Building A', 'A', 'BUILDING', 60, 15),
-  (1, 'Tower B', 'B', 'TOWER', 80, 20);
-
--- Layout society
-INSERT INTO society_groups (society_id, group_name, group_code, group_type, total_units)
-VALUES
-  (2, 'Phase 1', 'P1', 'PHASE', 50),
-  (2, 'East Section', 'ES', 'SECTION', 35);
-```
-
----
-
-### 4.7 Vendor Service Area Assignments Table
-
-**Purpose:** Define which groups (buildings/phases) a vendor serves (simplified with unified groups)
+**Purpose:** Define which hierarchy nodes a vendor serves (flexible assignment to any level)
 
 ```sql
 CREATE TABLE vendor_service_areas (
@@ -905,12 +1203,8 @@ CREATE TABLE vendor_service_areas (
   vendor_id UUID NOT NULL REFERENCES vendors(vendor_id) ON DELETE CASCADE,
   society_id INTEGER NOT NULL REFERENCES societies(society_id) ON DELETE CASCADE,
 
-  -- Assignment level
-  assignment_type VARCHAR(20) NOT NULL
-    CHECK (assignment_type IN ('SOCIETY', 'GROUP')),
-
-  -- Reference ID (nullable when assignment_type = 'SOCIETY')
-  group_id INTEGER REFERENCES society_groups(group_id) ON DELETE CASCADE,
+  -- Assign to any node in hierarchy (NULL = society-wide)
+  node_id INTEGER REFERENCES hierarchy_nodes(node_id) ON DELETE CASCADE,
 
   -- Status
   is_active BOOLEAN DEFAULT true,
@@ -920,124 +1214,135 @@ CREATE TABLE vendor_service_areas (
   updated_at TIMESTAMP DEFAULT NOW(),
   assigned_by UUID REFERENCES users(user_id),
 
-  -- Constraints
-  CHECK (
-    (assignment_type = 'SOCIETY' AND group_id IS NULL) OR
-    (assignment_type = 'GROUP' AND group_id IS NOT NULL)
-  ),
-
   -- Prevent duplicate assignments
-  UNIQUE(vendor_id, society_id, assignment_type, group_id)
+  UNIQUE(vendor_id, society_id, node_id)
 );
 
 -- Indexes
 CREATE INDEX idx_vendor_areas_vendor ON vendor_service_areas(vendor_id);
 CREATE INDEX idx_vendor_areas_society ON vendor_service_areas(society_id);
-CREATE INDEX idx_vendor_areas_group ON vendor_service_areas(group_id) WHERE group_id IS NOT NULL;
-CREATE INDEX idx_vendor_areas_type ON vendor_service_areas(assignment_type);
+CREATE INDEX idx_vendor_areas_node ON vendor_service_areas(node_id) WHERE node_id IS NOT NULL;
 CREATE INDEX idx_vendor_areas_active ON vendor_service_areas(is_active) WHERE is_active = true;
 
 -- Composite index for vendor lookup in a society
 CREATE INDEX idx_vendor_areas_lookup ON vendor_service_areas(society_id, vendor_id, is_active)
   WHERE is_active = true;
+
+-- Composite index for finding vendors assigned to specific node
+CREATE INDEX idx_vendor_areas_node_vendor ON vendor_service_areas(node_id, vendor_id, is_active)
+  WHERE is_active = true AND node_id IS NOT NULL;
+
+-- CRITICAL: Resident vendor discovery with hierarchy filtering
+CREATE INDEX idx_vendor_areas_society_active ON vendor_service_areas(society_id, is_active, node_id)
+  WHERE is_active = true;
+
+-- Audit trail
+CREATE INDEX idx_vendor_areas_assigned_by ON vendor_service_areas(assigned_by);  -- Who assigned vendors
 ```
 
-**Notes:**
-- **Simplified Assignment Types:**
-  - `SOCIETY`: Vendor serves entire society (all groups)
-  - `GROUP`: Vendor assigned to specific group(s) - works for both buildings and phases
-- One vendor can have multiple group assignments (e.g., Building A + Building B)
-- Used for default vendor filtering in resident app
-- Residents can override and view all vendors if needed
+**Assignment Flexibility:**
 
-**Example Assignments:**
+**Level 1 - Society-Wide:**
 ```sql
--- Vendor serves entire society
-INSERT INTO vendor_service_areas (vendor_id, society_id, assignment_type)
-VALUES ('vendor-uuid', 1, 'SOCIETY');
+-- Vendor serves entire society (NULL node_id)
+INSERT INTO vendor_service_areas (vendor_id, society_id, node_id)
+VALUES ('vendor-uuid', 1, NULL);
+```
 
--- Vendor serves specific groups (works for both buildings and phases)
-INSERT INTO vendor_service_areas (vendor_id, society_id, assignment_type, group_id)
+**Level 2 - Building/Phase:**
+```sql
+-- Vendor serves specific building (node_id=2 = Building A)
+INSERT INTO vendor_service_areas (vendor_id, society_id, node_id)
+VALUES ('vendor-uuid', 1, 2);
+```
+
+**Level 3 - Floor (if needed):**
+```sql
+-- Vendor serves only specific floors (node_id=4 = Floor 1, node_id=5 = Floor 2)
+INSERT INTO vendor_service_areas (vendor_id, society_id, node_id)
 VALUES
-  ('vendor-uuid', 1, 'GROUP', 1),  -- Building A
-  ('vendor-uuid', 1, 'GROUP', 2);  -- Building B
-
--- Vendor serves specific phases in layout
-INSERT INTO vendor_service_areas (vendor_id, society_id, assignment_type, group_id)
-VALUES ('vendor-uuid', 2, 'GROUP', 5);  -- Phase 1
+  ('vendor-uuid', 1, 4),  -- Floor 1
+  ('vendor-uuid', 1, 5);  -- Floor 2
 ```
 
----
-
-### 4.8 Updated Residents Table for Group References
-
-**Purpose:** Link residents to their groups (buildings or phases) in the 4-level hierarchy
-
-Update the residents table schema to include group reference:
-
+**Level 4 - Specific Unit (rare, typically for personal preferences):**
 ```sql
--- Add new column to residents table
-ALTER TABLE residents
-ADD COLUMN group_id INTEGER REFERENCES society_groups(group_id) ON DELETE SET NULL;
-
--- Add check constraint to ensure group_id is set for both FLAT and HOUSE
-ALTER TABLE residents
-ADD CONSTRAINT residents_group_check CHECK (
-  group_id IS NOT NULL
-);
-
--- Add index
-CREATE INDEX idx_residents_group ON residents(group_id);
+-- Vendor serves only specific flat (node_id=6 = Flat A-101)
+INSERT INTO vendor_service_areas (vendor_id, society_id, node_id)
+VALUES ('vendor-uuid', 1, 6);
 ```
 
-**Notes:**
-- **4-Level Hierarchy:** Society → Group → Unit (flat/house) → Floor (optional)
-- `group_id`: References the building (for apartments) or phase (for layouts)
-- `flat_number` or `house_number`: The unit within the group
-- `floor`: Optional - for multi-floor households
-- Works uniformly for both apartment and layout societies
-
-**Example Data:**
+**Resident Filtering Query:**
 ```sql
--- Apartment resident
-INSERT INTO residents (user_id, society_id, group_id, unit_type, flat_number, floor)
-VALUES ('user-uuid', 1, 1, 'FLAT', 'A-101', 1);
--- Represents: Society 1 → Building A (group_id: 1) → Flat A-101 → Floor 1
-
--- Layout resident
-INSERT INTO residents (user_id, society_id, group_id, unit_type, house_number, floor)
-VALUES ('user-uuid', 2, 5, 'HOUSE', '101', 0);
--- Represents: Society 2 → Phase 1 (group_id: 5) → House 101 → Ground Floor
+-- Find vendors assigned to resident's hierarchy path or society-wide
+WITH resident_path AS (
+  SELECT hn.path
+  FROM residents r
+  JOIN hierarchy_nodes hn ON r.unit_node_id = hn.node_id
+  WHERE r.resident_id = $1
+)
+SELECT DISTINCT v.*, vsa.node_id, hn.node_name AS assigned_area
+FROM vendors v
+JOIN vendor_service_areas vsa ON v.vendor_id = vsa.vendor_id
+LEFT JOIN hierarchy_nodes hn ON vsa.node_id = hn.node_id
+WHERE vsa.society_id = $2
+  AND vsa.is_active = true
+  AND v.approval_status = 'APPROVED'
+  AND (
+    -- Society-wide assignment
+    vsa.node_id IS NULL
+    OR
+    -- Vendor assigned to node in resident's path (ancestor)
+    (SELECT path FROM resident_path) <@ hn.path
+  );
 ```
 
----
+**Explanation:**
+- If vendor assigned to NULL: Serves everyone in society
+- If vendor assigned to Building A: Serves all units under Building A (using path matching)
+- Resident in Flat A-101 (path '1.2.4.6') will see vendors assigned to:
+  - NULL (society-wide)
+  - node 1 (society root)
+  - node 2 (Building A)
+  - node 4 (Floor 1)
+  - node 6 (their specific flat, if assigned)
 
-### 4.9 Updated Society Roster Table for Group References
+**Benefits:**
+✅ **Maximum Flexibility:** Assign to any level without schema changes
+✅ **Hierarchical Inheritance:** Assignment automatically covers all descendants
+✅ **Efficient Queries:** ltree path matching is fast
+✅ **Simple Schema:** No enums or complex CHECK constraints
+✅ **Multi-Assignment:** Vendor can be assigned to multiple nodes
 
-**Purpose:** Include group information in pre-approved roster (4-level hierarchy)
+**Example Scenarios:**
 
-Update the society_roster table schema:
-
+**Scenario 1: Standard Building Assignment**
 ```sql
--- Add new column to society_roster table
-ALTER TABLE society_roster
-ADD COLUMN group_id INTEGER REFERENCES society_groups(group_id) ON DELETE SET NULL;
-
--- Add check constraint
-ALTER TABLE society_roster
-ADD CONSTRAINT roster_group_check CHECK (
-  group_id IS NOT NULL
-);
-
--- Add index
-CREATE INDEX idx_roster_group ON society_roster(group_id);
+-- Vendor "QuickWash" serves Building A and Building B
+INSERT INTO vendor_service_areas (vendor_id, society_id, node_id)
+VALUES
+  ('quickwash-uuid', 1, 2),  -- Building A
+  ('quickwash-uuid', 1, 3);  -- Building B
+-- All residents in these buildings will see this vendor by default
 ```
 
-**Notes:**
-- **Unified approach:** Works for both apartments and layouts
-- `group_id`: References building (apartments) or phase (layouts)
-- Used for instant resident verification during onboarding
-- Matches the same structure as the residents table
+**Scenario 2: Phase Assignment for Layouts**
+```sql
+-- Vendor "CleanHome" serves Phase 1 only
+INSERT INTO vendor_service_areas (vendor_id, society_id, node_id)
+VALUES ('cleanhome-uuid', 2, 11);  -- Phase 1
+-- All houses in Phase 1 see this vendor
+```
+
+**Scenario 3: Premium Floors**
+```sql
+-- Vendor "LuxuryServices" serves only top floors (premium residents)
+INSERT INTO vendor_service_areas (vendor_id, society_id, node_id)
+VALUES
+  ('luxury-uuid', 1, 18),  -- Floor 14
+  ('luxury-uuid', 1, 19);  -- Floor 15
+-- Only residents on floors 14-15 see this vendor
+```
 
 ---
 
@@ -1070,6 +1375,9 @@ CREATE TABLE parent_categories (
 CREATE INDEX idx_parent_categories_active ON parent_categories(is_active) WHERE is_active = true;
 CREATE INDEX idx_parent_categories_live ON parent_categories(is_live) WHERE is_live = true;
 CREATE INDEX idx_parent_categories_order ON parent_categories(display_order);
+CREATE INDEX idx_parent_categories_key ON parent_categories(category_key);  -- Unique key lookups
+CREATE INDEX idx_parent_categories_live_order ON parent_categories(display_order)  -- App category listing
+  WHERE is_live = true;
 ```
 
 **Initial Data:**
@@ -1115,6 +1423,8 @@ CREATE TABLE service_categories (
 CREATE INDEX idx_service_categories_parent ON service_categories(parent_category_id);
 CREATE INDEX idx_service_categories_active ON service_categories(is_active) WHERE is_active = true;
 CREATE INDEX idx_service_categories_key ON service_categories(service_key);
+CREATE INDEX idx_service_categories_parent_active_order ON service_categories(parent_category_id, display_order)  -- Service listing
+  WHERE is_active = true;
 ```
 
 **Initial Data:**
@@ -1161,36 +1471,51 @@ END $$;
 CREATE TABLE vendor_services (
   id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vendor_id UUID REFERENCES vendors(vendor_id) ON DELETE CASCADE,
+  society_id INTEGER REFERENCES societies(society_id) ON DELETE CASCADE,
   service_id INTEGER REFERENCES service_categories(service_id) ON DELETE CASCADE,
 
   -- Configuration
   is_active BOOLEAN DEFAULT true,
-  turnaround_hours INTEGER DEFAULT 24,  -- Can override default
+  turnaround_hours INTEGER DEFAULT 24,  -- Can override default per society
 
   -- Metadata
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
 
-  UNIQUE(vendor_id, service_id)
+  UNIQUE(vendor_id, society_id, service_id)  -- One service offering per vendor per society
 );
 
 -- Indexes
 CREATE INDEX idx_vendor_services_vendor ON vendor_services(vendor_id);
+CREATE INDEX idx_vendor_services_society ON vendor_services(society_id);
 CREATE INDEX idx_vendor_services_service ON vendor_services(service_id);
 CREATE INDEX idx_vendor_services_active ON vendor_services(is_active) WHERE is_active = true;
+CREATE INDEX idx_vendor_services_vendor_society ON vendor_services(vendor_id, society_id, is_active)  -- CRITICAL: Vendor's services in a society
+  WHERE is_active = true;
+CREATE INDEX idx_vendor_services_society_service ON vendor_services(society_id, service_id, vendor_id, is_active)  -- CRITICAL: Find vendors by service in society
+  WHERE is_active = true;
 ```
+
+**Why society_id is required:**
+- Vendors may offer different services in different societies
+- Turnaround times can vary by society location (nearby vs far away)
+- Allows vendor to enable/disable specific services per society
+- Example: Vendor offers "Car Wash" in Society A (1 hour turnaround) and Society B (3 hour turnaround)
+
+**Note:** API will provide functionality to copy service configurations from one society to another for easier setup
 
 ---
 
 ### 5.4 Rate Cards Table
 
-**Purpose:** Pricing structure per vendor per society
+**Purpose:** Pricing structure per vendor per society per category
 
 ```sql
 CREATE TABLE rate_cards (
   rate_card_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vendor_id UUID REFERENCES vendors(vendor_id) ON DELETE CASCADE,
   society_id INTEGER REFERENCES societies(society_id) ON DELETE CASCADE,
+  parent_category_id INTEGER REFERENCES parent_categories(category_id) ON DELETE CASCADE,
 
   -- Status
   is_active BOOLEAN DEFAULT true,
@@ -1201,14 +1526,29 @@ CREATE TABLE rate_cards (
   updated_at TIMESTAMP DEFAULT NOW(),
   published_at TIMESTAMP,
 
-  UNIQUE(vendor_id, society_id)
+  UNIQUE(vendor_id, society_id, parent_category_id)  -- One rate card per vendor per society per category
 );
 
 -- Indexes
 CREATE INDEX idx_rate_cards_vendor ON rate_cards(vendor_id);
 CREATE INDEX idx_rate_cards_society ON rate_cards(society_id);
+CREATE INDEX idx_rate_cards_category ON rate_cards(parent_category_id);
 CREATE INDEX idx_rate_cards_active ON rate_cards(is_active) WHERE is_active = true;
+CREATE INDEX idx_rate_cards_society_category_published ON rate_cards(society_id, parent_category_id, vendor_id, is_active, is_published)  -- CRITICAL: Resident rate card lookup by category
+  WHERE is_active = true AND is_published = true;
+CREATE INDEX idx_rate_cards_vendor_society_category ON rate_cards(vendor_id, society_id, parent_category_id, is_active)  -- CRITICAL: Vendor's rate cards
+  WHERE is_active = true;
+CREATE INDEX idx_rate_cards_published_at ON rate_cards(published_at DESC);  -- Recently published cards
 ```
+
+**Why parent_category_id is required:**
+- Separates pricing for different service categories (Laundry, Vehicle, Home, Personal Care)
+- Vendor can have different rate cards for each category in the same society
+- Example: Vendor has separate rate cards for Laundry (ironing, washing) and Vehicle (car wash, bike wash)
+- Prevents mixing unrelated services in one rate card
+- Allows category-specific pricing strategies
+
+**Note:** Rate card items (Section 5.5) link to service_categories, which belong to parent_categories
 
 ---
 
@@ -1240,6 +1580,10 @@ CREATE TABLE rate_card_items (
 CREATE INDEX idx_rate_items_card ON rate_card_items(rate_card_id);
 CREATE INDEX idx_rate_items_service ON rate_card_items(service_id);
 CREATE INDEX idx_rate_items_active ON rate_card_items(is_active) WHERE is_active = true;
+CREATE INDEX idx_rate_items_card_service_active ON rate_card_items(rate_card_id, service_id, display_order)  -- Items by service
+  WHERE is_active = true;
+CREATE INDEX idx_rate_items_card_active ON rate_card_items(rate_card_id, is_active, display_order)  -- All items in card
+  WHERE is_active = true;
 ```
 
 ---
@@ -1271,6 +1615,7 @@ CREATE TABLE service_workflow_templates (
 -- Indexes
 CREATE INDEX idx_workflow_templates_service ON service_workflow_templates(service_id);
 CREATE INDEX idx_workflow_templates_default ON service_workflow_templates(service_id, is_default) WHERE is_default = true;
+CREATE INDEX idx_workflow_templates_active ON service_workflow_templates(is_active) WHERE is_active = true;  -- Active templates
 ```
 
 **Purpose:**
@@ -1465,19 +1810,14 @@ END $$;
 
 ```sql
 CREATE TYPE order_status AS ENUM (
-  'BOOKING_CREATED',
-  'PICKUP_SCHEDULED',
-  'PICKUP_IN_PROGRESS',
-  'COUNT_APPROVAL_PENDING',
-  'PICKED_UP',
-  'PROCESSING_IN_PROGRESS',
-  'READY_FOR_DELIVERY',
-  'OUT_FOR_DELIVERY',
-  'DELIVERED',
-  'COMPLETED',
-  'CANCELLED',
-  'DISPUTED',
-  'ON_HOLD'
+  'PENDING',           -- Order placed, awaiting vendor acceptance
+  'ACCEPTED',          -- Vendor accepted order
+  'IN_PROGRESS',       -- Work in progress (pickup, processing, etc.)
+  'DELIVERED',         -- Items delivered to resident
+  'PAYMENT_RECEIVED',  -- Vendor confirmed payment (48h grace period)
+  'CLOSED',            -- Order completed and closed (auto-closed after grace period)
+  'CANCELLED',         -- Cancelled by resident/vendor
+  'DISPUTED'           -- Dispute raised (freezes auto-closure)
 );
 
 CREATE TABLE orders (
@@ -1490,7 +1830,7 @@ CREATE TABLE orders (
   society_id INTEGER REFERENCES societies(society_id) ON DELETE RESTRICT,
 
   -- Status
-  status order_status DEFAULT 'BOOKING_CREATED',
+  status order_status DEFAULT 'PENDING',
 
   -- Multi-service flag
   has_multiple_services BOOLEAN DEFAULT false,
@@ -1516,6 +1856,15 @@ CREATE TABLE orders (
   pickup_photos JSONB DEFAULT '[]'::jsonb,
   delivery_photos JSONB DEFAULT '[]'::jsonb,
 
+  -- Payment (Manual confirmation for MVP, extensible for in-app payments in V2)
+  payment_type VARCHAR(20) DEFAULT 'MANUAL'
+    CHECK (payment_type IN ('MANUAL', 'IN_APP')),
+  payment_method VARCHAR(20)
+    CHECK (payment_method IN ('CASH', 'UPI', 'CARD', 'OTHER')),
+  payment_received_at TIMESTAMP,
+  payment_notes TEXT,
+  auto_close_at TIMESTAMP,  -- Calculated: payment_received_at + 48 hours
+
   -- Notes
   resident_notes TEXT,
   vendor_notes TEXT,
@@ -1539,6 +1888,26 @@ CREATE INDEX idx_orders_status ON orders(status);
 CREATE INDEX idx_orders_pickup ON orders(pickup_datetime);
 CREATE INDEX idx_orders_delivery ON orders(expected_delivery_date);
 CREATE INDEX idx_orders_number ON orders(order_number);
+
+-- CRITICAL: Resident order history filtered by status
+CREATE INDEX idx_orders_resident_status ON orders(resident_id, status, created_at DESC);
+
+-- CRITICAL: Vendor pickup schedule
+CREATE INDEX idx_orders_vendor_pickup ON orders(vendor_id, pickup_datetime)
+  WHERE status IN ('ACCEPTED', 'IN_PROGRESS');
+
+-- CRITICAL: Auto-closure cron job
+CREATE INDEX idx_orders_auto_close ON orders(auto_close_at)
+  WHERE status = 'PAYMENT_RECEIVED';
+
+-- Payment type filtering
+CREATE INDEX idx_orders_payment_type ON orders(payment_type, status);
+
+-- CRITICAL: Society admin dashboard
+CREATE INDEX idx_orders_society_status_date ON orders(society_id, status, created_at DESC);
+
+-- Audit trail
+CREATE INDEX idx_orders_cancelled_by ON orders(cancelled_by);
 ```
 
 **Trigger: Generate Order Number**
@@ -1560,11 +1929,80 @@ CREATE TRIGGER trigger_generate_order_number
   EXECUTE FUNCTION generate_order_number();
 ```
 
+**Payment Flow (MVP - Manual Confirmation):**
+
+The order payment system is designed for **manual payment confirmation** in MVP, with extensibility for in-app payments in V2.
+
+**Order Status Progression:**
+```
+PENDING → ACCEPTED → IN_PROGRESS → DELIVERED → PAYMENT_RECEIVED → CLOSED
+```
+
+**Payment Workflow:**
+
+1. **Order Delivery** (status: DELIVERED)
+   - Vendor delivers items to resident
+   - Payment occurs outside app (cash/UPI direct to vendor)
+
+2. **Payment Confirmation** (status: PAYMENT_RECEIVED)
+   - Vendor marks "Payment Received" in app
+   - Selects payment_method: CASH, UPI, CARD, or OTHER
+   - Optional payment_notes for reference
+   - System calculates: `auto_close_at = payment_received_at + 48 hours`
+
+3. **Grace Period** (48 hours)
+   - Resident can dispute if payment info is incorrect
+   - Resident receives notification: "Payment marked as received. Dispute within 48h if incorrect"
+   - Dispute changes status to DISPUTED and freezes auto-closure
+
+4. **Auto-Closure** (status: CLOSED)
+   - Cron job runs hourly
+   - Closes orders where: `status='PAYMENT_RECEIVED' AND auto_close_at < NOW() AND no active disputes`
+   - Both parties can leave ratings/reviews after closure
+
+**Benefits:**
+- ✅ No transaction fees (vendors keep 100% of earnings)
+- ✅ Faster MVP launch (no payment gateway integration)
+- ✅ Simple for initial testing
+- ✅ Forward-compatible: `payment_type='IN_APP'` reserved for V2
+
+**Future: In-App Payments (V2):**
+- `payment_type='IN_APP'` orders will use Razorpay/Stripe integration
+- Auto-close immediate upon webhook verification (no 48h wait)
+- Existing manual flow continues for `payment_type='MANUAL'` orders
+- Zero breaking changes to schema
+
+**Cron Job Implementation:**
+```javascript
+// Auto-close paid orders (runs hourly)
+const autoCloseOrders = async () => {
+  await db.query(`
+    UPDATE orders
+    SET status = 'CLOSED', updated_at = NOW()
+    WHERE status = 'PAYMENT_RECEIVED'
+      AND auto_close_at < NOW()
+      AND NOT EXISTS (
+        SELECT 1 FROM disputes WHERE order_id = orders.order_id AND status = 'OPEN'
+      )
+  `);
+};
+```
+
 ---
 
 ### 7.2 Order Items Table
 
-**Purpose:** Individual items in each order
+**Purpose:** Quantity-based line items for each order (aggregated by service and rate card item)
+
+**Design Pattern:** Quantity-Based Aggregation
+- Each row represents a unique (order_id, service_id, rate_card_item_id) combination
+- Quantity field stores count of that item type for that service
+- Prices are **immutable snapshots** - captured at order creation and never affected by rate card updates
+
+**Example:**
+- Order #123 with 5 shirts for ironing + 3 shirts for washing = **2 rows** (not 8):
+  - Row 1: service_id=1 (Ironing), rate_card_item_id=10 (Shirt), qty=5, unit_price=10.00, total=50.00
+  - Row 2: service_id=2 (Washing), rate_card_item_id=20 (Shirt), qty=3, unit_price=15.00, total=45.00
 
 ```sql
 CREATE TABLE order_items (
@@ -1577,15 +2015,20 @@ CREATE TABLE order_items (
   item_name VARCHAR(100) NOT NULL,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   unit_price DECIMAL(6,2) NOT NULL,
-  total_price DECIMAL(10,2) NOT NULL,
+  total_price DECIMAL(10,2) NOT NULL CHECK (total_price = quantity * unit_price),
 
   -- Metadata
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+
+  -- Prevent duplicate line items (enforce quantity-based aggregation)
+  UNIQUE(order_id, service_id, rate_card_item_id)
 );
 
 -- Indexes
 CREATE INDEX idx_order_items_order ON order_items(order_id);
 CREATE INDEX idx_order_items_service ON order_items(service_id);
+CREATE INDEX idx_order_items_rate_card_item ON order_items(rate_card_item_id);  -- FK index for joins
+CREATE INDEX idx_order_items_order_service ON order_items(order_id, service_id);  -- Grouping items by service
 ```
 
 ---
@@ -1630,6 +2073,8 @@ CREATE INDEX idx_order_service_status_order ON order_service_status(order_id);
 CREATE INDEX idx_order_service_status_service ON order_service_status(service_id);
 CREATE INDEX idx_order_service_status_status ON order_service_status(status);
 CREATE INDEX idx_order_service_status_step ON order_service_status(current_step_id);
+CREATE INDEX idx_order_service_status_template ON order_service_status(template_id);  -- FK index for workflow joins
+CREATE INDEX idx_order_service_status_delivery ON order_service_status(expected_delivery_date);  -- Delivery schedule
 ```
 
 ---
@@ -1674,6 +2119,16 @@ CREATE INDEX idx_workflow_progress_order ON order_workflow_progress(order_id, se
 CREATE INDEX idx_workflow_progress_step ON order_workflow_progress(step_id);
 CREATE INDEX idx_workflow_progress_status ON order_workflow_progress(status);
 CREATE INDEX idx_workflow_progress_completed ON order_workflow_progress(completed_at DESC);
+
+-- CRITICAL: Composite index for progress lookup
+CREATE INDEX idx_workflow_progress_order_service_step ON order_workflow_progress(order_id, service_id, step_id);
+
+-- CRITICAL: Finding active/pending steps
+CREATE INDEX idx_workflow_progress_pending ON order_workflow_progress(order_id, status)
+  WHERE status IN ('PENDING', 'IN_PROGRESS');
+
+-- Vendor performance queries
+CREATE INDEX idx_workflow_progress_completed_by ON order_workflow_progress(completed_by);
 ```
 
 **Purpose:**
@@ -1713,6 +2168,8 @@ CREATE TABLE order_status_log (
 CREATE INDEX idx_order_status_log_order ON order_status_log(order_id, created_at DESC);
 CREATE INDEX idx_order_status_log_service ON order_status_log(service_id);
 CREATE INDEX idx_order_status_log_status ON order_status_log(to_status);
+CREATE INDEX idx_order_status_log_changed_by ON order_status_log(changed_by);  -- User activity audit
+CREATE INDEX idx_order_status_log_role ON order_status_log(changed_by_role, created_at DESC);  -- Role-based activity reports
 ```
 
 ---
@@ -1759,6 +2216,10 @@ CREATE INDEX idx_payments_order ON payments(order_id);
 CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_payments_method ON payments(payment_method);
 CREATE INDEX idx_payments_razorpay_order ON payments(razorpay_order_id);
+CREATE INDEX idx_payments_order_status ON payments(order_id, status);  -- Payment status lookup for order
+CREATE INDEX idx_payments_razorpay_payment ON payments(razorpay_payment_id);  -- Razorpay webhook verification
+CREATE INDEX idx_payments_paid_at ON payments(paid_at DESC);  -- Payment history/reports
+CREATE INDEX idx_payments_created_at ON payments(created_at DESC);  -- Payment reports by creation date
 ```
 
 ---
@@ -1799,6 +2260,9 @@ CREATE TABLE settlements (
 CREATE INDEX idx_settlements_vendor ON settlements(vendor_id, period_end DESC);
 CREATE INDEX idx_settlements_status ON settlements(status);
 CREATE INDEX idx_settlements_period ON settlements(period_start, period_end);
+CREATE INDEX idx_settlements_paid_at ON settlements(paid_at DESC);  -- Payment history reports
+CREATE INDEX idx_settlements_pending ON settlements(vendor_id, status)  -- Unpaid settlements
+  WHERE status IN ('PENDING', 'PROCESSING');
 ```
 
 ---
@@ -1849,6 +2313,10 @@ CREATE INDEX idx_subscriptions_society ON society_subscriptions(society_id);
 CREATE INDEX idx_subscriptions_status ON society_subscriptions(status);
 CREATE INDEX idx_subscriptions_tier ON society_subscriptions(tier);
 CREATE INDEX idx_subscriptions_next_billing ON society_subscriptions(next_billing_date);
+CREATE INDEX idx_subscriptions_billing_active ON society_subscriptions(next_billing_date, status)  -- Cron job for billing
+  WHERE status = 'ACTIVE';
+CREATE INDEX idx_subscriptions_trial_end ON society_subscriptions(trial_end_date)  -- Trial expiration cron job
+  WHERE is_trial = true;
 ```
 
 ---
@@ -1897,6 +2365,11 @@ CREATE INDEX idx_invoices_society ON subscription_invoices(society_id);
 CREATE INDEX idx_invoices_status ON subscription_invoices(status);
 CREATE INDEX idx_invoices_due_date ON subscription_invoices(due_date);
 CREATE INDEX idx_invoices_number ON subscription_invoices(invoice_number);
+CREATE INDEX idx_invoices_overdue ON subscription_invoices(due_date, status)  -- Finding overdue invoices
+  WHERE status = 'PENDING';
+CREATE INDEX idx_invoices_razorpay_order ON subscription_invoices(razorpay_order_id);  -- Razorpay webhook verification
+CREATE INDEX idx_invoices_razorpay_payment ON subscription_invoices(razorpay_payment_id);  -- Payment verification
+CREATE INDEX idx_invoices_paid_at ON subscription_invoices(paid_at DESC);  -- Payment history
 ```
 
 ---
@@ -1950,6 +2423,16 @@ CREATE INDEX idx_disputes_raised_by ON disputes(raised_by);
 CREATE INDEX idx_disputes_status ON disputes(status);
 CREATE INDEX idx_disputes_priority ON disputes(priority);
 CREATE INDEX idx_disputes_created ON disputes(created_at DESC);
+
+-- CRITICAL: Check if order has active disputes (for auto-close logic)
+CREATE INDEX idx_disputes_order_status ON disputes(order_id, status);
+
+-- CRITICAL: Active disputes queue sorted by priority
+CREATE INDEX idx_disputes_open ON disputes(status, priority, created_at)
+  WHERE status IN ('OPEN', 'IN_PROGRESS');
+
+-- Agent performance queries
+CREATE INDEX idx_disputes_resolved_by ON disputes(resolved_by);
 ```
 
 ---
@@ -1991,6 +2474,11 @@ CREATE INDEX idx_ratings_vendor ON ratings(vendor_id, created_at DESC);
 CREATE INDEX idx_ratings_service ON ratings(service_id);
 CREATE INDEX idx_ratings_rating ON ratings(rating);
 CREATE INDEX idx_ratings_published ON ratings(is_published) WHERE is_published = true;
+CREATE INDEX idx_ratings_resident ON ratings(resident_id);  -- All ratings by a resident
+CREATE INDEX idx_ratings_vendor_published ON ratings(vendor_id, is_published, created_at DESC)  -- Vendor public ratings
+  WHERE is_published = true;
+CREATE INDEX idx_ratings_vendor_service_published ON ratings(vendor_id, service_id, is_published)  -- Service-specific ratings
+  WHERE is_published = true;
 ```
 
 **Trigger: Update Vendor Average Rating**
@@ -2054,43 +2542,200 @@ CREATE TABLE notifications (
 CREATE INDEX idx_notifications_user ON notifications(user_id, created_at DESC);
 CREATE INDEX idx_notifications_read ON notifications(user_id, is_read) WHERE is_read = false;
 CREATE INDEX idx_notifications_type ON notifications(notification_type);
+CREATE INDEX idx_notifications_action_type ON notifications(action_type);  -- Filtering by action type
+CREATE INDEX idx_notifications_user_type_read ON notifications(user_id, notification_type, is_read);  -- Type + read status filter
 ```
 
 ---
 
 ## 11. Indexes & Performance
 
-### 11.1 Critical Indexes Summary
+### 11.1 Index Statistics
+
+**Total Indexes Added:** 34 missing indexes identified and added
+- **Critical Performance Indexes:** 8 (impact core user flows)
+- **Medium Priority Indexes:** 11 (query optimization)
+- **Low Priority Indexes:** 15 (audit/reporting)
+
+### 11.2 Critical Performance Indexes
+
+These indexes directly impact core user flows and system performance:
 
 ```sql
--- User lookups
-CREATE INDEX idx_users_phone ON users(phone);
-CREATE INDEX idx_users_fcm_token ON users(fcm_token) WHERE fcm_token IS NOT NULL;
+-- HIERARCHY NODES (ltree-based queries)
+CREATE INDEX idx_nodes_code_lookup ON hierarchy_nodes(society_id, node_code, parent_node_id);  -- Fast node code lookups
+CREATE INDEX idx_nodes_level_depth ON hierarchy_nodes(society_id, level_depth);  -- Level-based filtering (get all floors, all units)
 
--- Order queries (most critical)
-CREATE INDEX idx_orders_resident_status ON orders(resident_id, status, created_at DESC);
-CREATE INDEX idx_orders_vendor_status ON orders(vendor_id, status, pickup_datetime);
-CREATE INDEX idx_orders_society_date ON orders(society_id, created_at DESC);
-CREATE INDEX idx_orders_status_pickup ON orders(status, pickup_datetime) WHERE status IN ('PICKUP_SCHEDULED', 'PICKUP_IN_PROGRESS');
+-- ORDERS (resident & vendor app performance)
+CREATE INDEX idx_orders_resident_status ON orders(resident_id, status, created_at DESC);  -- Resident order history by status
+CREATE INDEX idx_orders_auto_close ON orders(auto_close_at) WHERE status = 'PAYMENT_RECEIVED';  -- Auto-closure cron job
+CREATE INDEX idx_orders_society_status_date ON orders(society_id, status, created_at DESC);  -- Society admin dashboard
 
--- Service lookups
-CREATE INDEX idx_service_categories_parent_active ON service_categories(parent_category_id, is_active) WHERE is_active = true;
-CREATE INDEX idx_vendor_services_composite ON vendor_services(vendor_id, service_id, is_active);
+-- ORDER WORKFLOW (workflow step tracking)
+CREATE INDEX idx_workflow_progress_order_service_step ON order_workflow_progress(order_id, service_id, step_id);  -- Progress lookup
+CREATE INDEX idx_workflow_progress_pending ON order_workflow_progress(order_id, status) WHERE status IN ('PENDING', 'IN_PROGRESS');  -- Active steps
 
--- Workflow queries
-CREATE INDEX idx_workflow_steps_template_order ON workflow_steps(template_id, step_order);
-CREATE INDEX idx_workflow_progress_order_service ON order_workflow_progress(order_id, service_id, step_id);
+-- VENDOR DISCOVERY (resident app)
+CREATE INDEX idx_vendor_areas_society_active ON vendor_service_areas(society_id, is_active, node_id) WHERE is_active = true;  -- Hierarchy-based filtering
+CREATE INDEX idx_vendors_approved_available ON vendors(approval_status, is_available) WHERE approval_status = 'APPROVED' AND is_available = true;  -- Available vendors
 
--- Rate card searches
-CREATE INDEX idx_rate_cards_society_active ON rate_cards(society_id, is_active) WHERE is_active = true AND is_published = true;
+-- VENDOR SOCIETIES (approval lookups)
+CREATE INDEX idx_vendor_societies_approved ON vendor_societies(society_id, vendor_id, approval_status) WHERE approval_status = 'APPROVED';  -- Approved vendors
 
--- Payment tracking
-CREATE INDEX idx_payments_order_status ON payments(order_id, status);
+-- RATE CARDS (pricing lookups)
+CREATE INDEX idx_rate_cards_society_published ON rate_cards(society_id, vendor_id, is_active, is_published) WHERE is_active = true AND is_published = true;  -- Resident rate card discovery
 
--- Subscription billing
-CREATE INDEX idx_subscriptions_billing ON society_subscriptions(next_billing_date, status) WHERE status = 'ACTIVE';
+-- DISPUTES (auto-close logic)
+CREATE INDEX idx_disputes_order_status ON disputes(order_id, status);  -- Check for active disputes before auto-close
+CREATE INDEX idx_disputes_open ON disputes(status, priority, created_at) WHERE status IN ('OPEN', 'IN_PROGRESS');  -- Active dispute queue
+```
+
+### 11.3 Medium Priority Indexes (Query Optimization)
+
+```sql
+-- USER MANAGEMENT
+CREATE INDEX idx_users_fcm_token ON users(fcm_token) WHERE fcm_token IS NOT NULL;  -- Push notification delivery
+CREATE INDEX idx_users_type_active ON users(user_type, is_active) WHERE is_active = true;  -- Active users by type
+
+-- CATEGORIES & SERVICES
+CREATE INDEX idx_service_categories_parent_active_order ON service_categories(parent_category_id, display_order) WHERE is_active = true;  -- Service listing
+
+-- RATE CARD ITEMS
+CREATE INDEX idx_rate_items_card_service_active ON rate_card_items(rate_card_id, service_id, display_order) WHERE is_active = true;  -- Items by service
+CREATE INDEX idx_rate_items_card_active ON rate_card_items(rate_card_id, is_active, display_order) WHERE is_active = true;  -- All items in card
+
+-- ORDER ITEMS
+CREATE INDEX idx_order_items_order_service ON order_items(order_id, service_id);  -- Grouping items by service
+
+-- PAYMENTS (V2 in-app payments)
+CREATE INDEX idx_payments_order_status ON payments(order_id, status);  -- Payment status for order
+CREATE INDEX idx_payments_razorpay_payment ON payments(razorpay_payment_id);  -- Webhook verification
+
+-- SUBSCRIPTION INVOICES
+CREATE INDEX idx_invoices_overdue ON subscription_invoices(due_date, status) WHERE status = 'PENDING';  -- Overdue invoice detection
+CREATE INDEX idx_invoices_razorpay_order ON subscription_invoices(razorpay_order_id);  -- Webhook verification
+
+-- VENDOR SERVICES
+CREATE INDEX idx_vendor_services_composite ON vendor_services(vendor_id, service_id, is_active) WHERE is_active = true;  -- Check vendor offers service
+CREATE INDEX idx_vendor_services_service_active ON vendor_services(service_id, vendor_id) WHERE is_active = true;  -- Find vendors by service
+
+-- RATINGS
+CREATE INDEX idx_ratings_vendor_published ON ratings(vendor_id, is_published, created_at DESC) WHERE is_published = true;  -- Vendor public ratings
+CREATE INDEX idx_ratings_vendor_service_published ON ratings(vendor_id, service_id, is_published) WHERE is_published = true;  -- Service-specific ratings
+```
+
+### 11.4 Low Priority Indexes (Audit & Reporting)
+
+```sql
+-- AUDIT TRAILS (who did what)
+CREATE INDEX idx_societies_created_by ON societies(created_by);
+CREATE INDEX idx_nodes_created_by ON hierarchy_nodes(created_by);
+CREATE INDEX idx_residents_verified_by ON residents(verified_by);
+CREATE INDEX idx_roster_added_by ON society_roster(added_by);
+CREATE INDEX idx_vendors_approved_by ON vendors(approved_by);
+CREATE INDEX idx_vendor_societies_approved_by ON vendor_societies(approved_by);
+CREATE INDEX idx_vendor_areas_assigned_by ON vendor_service_areas(assigned_by);
+CREATE INDEX idx_orders_cancelled_by ON orders(cancelled_by);
+CREATE INDEX idx_workflow_progress_completed_by ON order_workflow_progress(completed_by);
+CREATE INDEX idx_order_status_log_changed_by ON order_status_log(changed_by);
+CREATE INDEX idx_order_status_log_role ON order_status_log(changed_by_role, created_at DESC);
+CREATE INDEX idx_disputes_resolved_by ON disputes(resolved_by);
+
+-- REPORTING
+CREATE INDEX idx_users_last_login ON users(last_login_at DESC);  -- Activity reports
+CREATE INDEX idx_vendors_total_orders ON vendors(total_orders DESC);  -- Experience sorting
+CREATE INDEX idx_payments_paid_at ON payments(paid_at DESC);  -- Payment history
+CREATE INDEX idx_settlements_paid_at ON settlements(paid_at DESC);  -- Payment history
+```
+
+### 11.5 Cron Job Dependencies
+
+These indexes are critical for scheduled background jobs:
+
+```sql
+-- Order auto-closure (runs every hour)
+CREATE INDEX idx_orders_auto_close ON orders(auto_close_at) WHERE status = 'PAYMENT_RECEIVED';
+
+-- Subscription billing (runs daily)
+CREATE INDEX idx_subscriptions_billing_active ON society_subscriptions(next_billing_date, status) WHERE status = 'ACTIVE';
+
+-- Trial expiration (runs daily)
+CREATE INDEX idx_subscriptions_trial_end ON society_subscriptions(trial_end_date) WHERE is_trial = true;
+
+-- Overdue invoices (runs daily)
 CREATE INDEX idx_invoices_overdue ON subscription_invoices(due_date, status) WHERE status = 'PENDING';
 ```
+
+### 11.6 Partial Index Strategy
+
+Partial indexes (with `WHERE` clauses) are used extensively to:
+1. **Reduce index size** - Only index relevant rows
+2. **Improve query performance** - Smaller indexes = faster scans
+3. **Save disk space** - Can reduce index size by 50-90%
+
+Examples:
+```sql
+-- Only index active residents (90% of queries filter by is_active = true)
+CREATE INDEX idx_residents_active ON residents(user_id, is_active) WHERE is_active = true;
+
+-- Only index published ratings (only published ratings are shown to users)
+CREATE INDEX idx_ratings_published ON ratings(is_published) WHERE is_published = true;
+
+-- Only index pending/in-progress workflow steps (completed steps rarely queried)
+CREATE INDEX idx_workflow_progress_pending ON order_workflow_progress(order_id, status)
+  WHERE status IN ('PENDING', 'IN_PROGRESS');
+```
+
+### 11.7 ltree Index Strategy
+
+The `hierarchy_nodes` table uses PostgreSQL's `ltree` extension for efficient tree queries:
+
+```sql
+-- GIST index for path-based queries (ancestor/descendant lookups)
+CREATE INDEX idx_nodes_path ON hierarchy_nodes USING GIST(path);
+
+-- Common ltree operators used:
+-- <@ : Path is ancestor of
+-- @> : Path is descendant of
+-- ~  : Pattern matching
+
+-- Example: Find all nodes under a building
+SELECT * FROM hierarchy_nodes
+WHERE path <@ 'society_1.building_A';
+
+-- Example: Find all ancestors of a unit
+SELECT * FROM hierarchy_nodes hn
+WHERE 'society_1.building_A.floor_2.unit_201' ~ (hn.path || '.*')::lquery;
+```
+
+### 11.8 Index Maintenance
+
+**Rebuild Indexes Quarterly:**
+```sql
+-- Rebuild all indexes in a table (reduces bloat)
+REINDEX TABLE hierarchy_nodes;
+REINDEX TABLE orders;
+REINDEX TABLE order_workflow_progress;
+```
+
+**Monitor Index Usage:**
+```sql
+-- Find unused indexes
+SELECT schemaname, tablename, indexname, idx_scan
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+  AND indexname NOT LIKE '%_pkey';
+```
+
+### 11.9 Query Performance Targets
+
+- **User authentication:** < 50ms
+- **Order creation:** < 200ms
+- **Vendor discovery:** < 100ms
+- **Order history (paginated):** < 150ms
+- **Workflow step updates:** < 100ms
+- **Rate card lookups:** < 80ms
+- **ltree hierarchy queries:** < 50ms
 
 ---
 
@@ -2330,57 +2975,73 @@ $$ LANGUAGE plpgsql;
 
 ### 12.5 Check Resident in Roster
 
+**Purpose:** Validates if a phone number exists in the society roster for a specific unit. Used for instant verification during resident registration.
+
+**Important:** This function validates the **exact combination** of phone + society + unit to prevent verification race conditions when the same phone exists in multiple units.
+
 ```sql
-CREATE OR REPLACE FUNCTION check_resident_in_roster(p_phone VARCHAR(15))
+CREATE OR REPLACE FUNCTION check_resident_in_roster(
+  p_phone VARCHAR(15),
+  p_society_id INTEGER,
+  p_unit_node_id INTEGER
+)
 RETURNS TABLE(
+  roster_id INTEGER,
   society_id INTEGER,
   society_name VARCHAR(255),
   society_type VARCHAR(20),
   address TEXT,
   city VARCHAR(100),
-  unit_type VARCHAR(10),
-  flat_number VARCHAR(20),
-  tower VARCHAR(10),
-  house_number VARCHAR(20),
-  street VARCHAR(100),
-  floor INTEGER,
-  suggested_name VARCHAR(255),
-  notes TEXT
+  unit_node_id INTEGER,
+  unit_path LTREE,
+  resident_name VARCHAR(255),
+  notes TEXT,
+  added_at TIMESTAMP
 ) AS $$
 BEGIN
   RETURN QUERY
   SELECT
+    sr.roster_id,
     s.society_id,
     s.name as society_name,
     s.society_type,
     s.address,
     s.city,
-    sr.unit_type,
-    sr.flat_number,
-    sr.tower,
-    sr.house_number,
-    sr.street,
-    sr.floor,
-    sr.resident_name as suggested_name,
-    sr.notes
+    sr.unit_node_id,
+    hn.path as unit_path,
+    sr.resident_name,
+    sr.notes,
+    sr.added_at
   FROM society_roster sr
   JOIN societies s ON sr.society_id = s.society_id
+  JOIN hierarchy_nodes hn ON sr.unit_node_id = hn.node_id
   WHERE sr.phone = p_phone
+    AND sr.society_id = p_society_id
+    AND sr.unit_node_id = p_unit_node_id
     AND sr.is_active = true
     AND s.is_active = true
     AND s.status = 'ACTIVE'
-  ORDER BY
-    -- Primary residence first (if marked in roster notes)
-    CASE WHEN sr.notes ILIKE '%primary%' THEN 0 ELSE 1 END,
-    sr.added_at ASC;
+  LIMIT 1;
 END;
 $$ LANGUAGE plpgsql;
 ```
 
 **Usage:**
 ```sql
-SELECT * FROM check_resident_in_roster('+919876543210');
+-- Validate exact phone + society + unit combination
+SELECT * FROM check_resident_in_roster(
+  '+919876543210',  -- phone
+  1,                -- society_id
+  42                -- unit_node_id (from hierarchy_nodes)
+);
+
+-- Returns 1 row if exact match found, 0 rows otherwise
+-- Prevents race condition where same phone exists in multiple units
 ```
+
+**Race Condition Prevention:**
+- Old function: `check_resident_in_roster(phone)` → Could match multiple units ❌
+- New function: `check_resident_in_roster(phone, society_id, unit_node_id)` → Exact match only ✅
 
 ### 12.6 Set Active Society
 
@@ -2525,6 +3186,187 @@ $$ LANGUAGE plpgsql;
 **Usage:**
 ```sql
 SELECT * FROM get_user_all_residences('user-uuid');
+```
+
+---
+
+### 12.9 Workflow Validation Triggers
+
+#### 12.9.1 Validate Template Has Steps
+
+**Purpose:** Ensures every active workflow template has at least one active step. Prevents activating empty workflows that would break order processing.
+
+```sql
+CREATE OR REPLACE FUNCTION validate_template_has_steps()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- When template is being activated, ensure it has at least 1 step
+  IF NEW.is_active = true THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM workflow_steps
+      WHERE template_id = NEW.template_id
+        AND is_active = true
+    ) THEN
+      RAISE EXCEPTION 'Cannot activate workflow template without active steps. Template ID: %', NEW.template_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER check_template_has_steps
+  BEFORE UPDATE ON service_workflow_templates
+  FOR EACH ROW
+  WHEN (OLD.is_active = false AND NEW.is_active = true)
+  EXECUTE FUNCTION validate_template_has_steps();
+```
+
+#### 12.9.2 Validate Sequential Step Order
+
+**Purpose:** Enforces sequential step ordering (1, 2, 3...) with no gaps. Prevents confusing step sequences like 1, 5, 10.
+
+```sql
+CREATE OR REPLACE FUNCTION validate_workflow_step_order()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_max_order INTEGER;
+  v_expected_order INTEGER;
+BEGIN
+  -- Get current max step_order for this template (excluding current step if UPDATE)
+  SELECT COALESCE(MAX(step_order), 0) INTO v_max_order
+  FROM workflow_steps
+  WHERE template_id = NEW.template_id
+    AND step_id != COALESCE(NEW.step_id, -1);  -- Exclude self for updates
+
+  -- Expected next order is max + 1
+  v_expected_order := v_max_order + 1;
+
+  -- For INSERT: must be sequential (max + 1)
+  -- For UPDATE: can keep existing order or be reordered to valid position
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.step_order != v_expected_order THEN
+      RAISE EXCEPTION 'Step order must be sequential. Expected %, got %. Template ID: %',
+        v_expected_order, NEW.step_order, NEW.template_id;
+    END IF;
+  END IF;
+
+  -- For both INSERT/UPDATE: step_order must be > 0
+  IF NEW.step_order <= 0 THEN
+    RAISE EXCEPTION 'Step order must be greater than 0. Got: %', NEW.step_order;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER check_step_order_sequential
+  BEFORE INSERT ON workflow_steps
+  FOR EACH ROW
+  EXECUTE FUNCTION validate_workflow_step_order();
+```
+
+**Note:** For updates/reordering, use application logic to resequence steps. The trigger ensures INSERTs are always sequential.
+
+#### 12.9.3 Prevent Skipping Required Steps
+
+**Purpose:** Blocks setting status='SKIPPED' on required workflow steps. Only optional steps (is_required=false) can be skipped.
+
+```sql
+CREATE OR REPLACE FUNCTION validate_required_step_not_skipped()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_is_required BOOLEAN;
+  v_step_name VARCHAR(100);
+BEGIN
+  -- Check if the step being skipped is required
+  IF NEW.status = 'SKIPPED' THEN
+    SELECT is_required, step_name INTO v_is_required, v_step_name
+    FROM workflow_steps
+    WHERE step_id = NEW.step_id;
+
+    IF v_is_required = true THEN
+      RAISE EXCEPTION 'Cannot skip required step: "%" (step_id: %)', v_step_name, NEW.step_id;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER prevent_skip_required_step
+  BEFORE INSERT OR UPDATE ON order_workflow_progress
+  FOR EACH ROW
+  WHEN (NEW.status = 'SKIPPED')
+  EXECUTE FUNCTION validate_required_step_not_skipped();
+```
+
+#### 12.9.4 Auto-Complete Service Workflow
+
+**Purpose:** Automatically marks order service as COMPLETED when all required steps are done. Improves workflow automation.
+
+```sql
+CREATE OR REPLACE FUNCTION auto_complete_service_workflow()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_template_id INTEGER;
+  v_pending_required_steps INTEGER;
+BEGIN
+  -- Get the template_id for this order's service
+  SELECT template_id INTO v_template_id
+  FROM order_service_status
+  WHERE order_id = NEW.order_id
+    AND service_id = NEW.service_id;
+
+  IF v_template_id IS NULL THEN
+    RETURN NEW;  -- No template found, skip auto-completion
+  END IF;
+
+  -- Count remaining required steps that aren't completed
+  SELECT COUNT(*) INTO v_pending_required_steps
+  FROM workflow_steps ws
+  LEFT JOIN order_workflow_progress owp
+    ON ws.step_id = owp.step_id
+    AND owp.order_id = NEW.order_id
+    AND owp.service_id = NEW.service_id
+  WHERE ws.template_id = v_template_id
+    AND ws.is_required = true
+    AND ws.is_active = true
+    AND (owp.status IS NULL OR owp.status NOT IN ('COMPLETED', 'SKIPPED'));
+
+  -- If no pending required steps, mark service as READY
+  IF v_pending_required_steps = 0 THEN
+    UPDATE order_service_status
+    SET
+      status = 'READY',  -- All steps complete, ready for delivery
+      ready_at = NOW(),
+      updated_at = NOW()
+    WHERE order_id = NEW.order_id
+      AND service_id = NEW.service_id
+      AND status != 'READY';  -- Only update if not already READY
+
+    RAISE NOTICE 'Service workflow completed for order_id: %, service_id: %',
+      NEW.order_id, NEW.service_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER auto_complete_on_step_done
+  AFTER INSERT OR UPDATE ON order_workflow_progress
+  FOR EACH ROW
+  WHEN (NEW.status IN ('COMPLETED', 'SKIPPED'))
+  EXECUTE FUNCTION auto_complete_service_workflow();
+```
+
+**Usage Example:**
+```sql
+-- When vendor completes the last required step:
+UPDATE order_workflow_progress
+SET status = 'COMPLETED', completed_at = NOW(), completed_by = 'vendor-uuid'
+WHERE order_id = 'order-uuid' AND service_id = 1 AND step_id = 5;
+
+-- Trigger automatically fires and updates order_service_status to 'READY'
 ```
 
 ---
