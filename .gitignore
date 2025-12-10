@@ -31,9 +31,6 @@ out/
 .DS_Store
 Thumbs.db
 
-# Vercel
-.vercel
-
 # TypeScript
 *.tsbuildinfo
 
@@ -45,9 +42,13 @@ Thumbs.db
 **/ios/Flutter/Flutter.framework
 **/ios/Flutter/Flutter.podspec
 **/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/Debug.xcconfig
+**/ios/Flutter/Release.xcconfig
 **/ios/Flutter/ephemeral/
 **/ios/Flutter/flutter_export_environment.sh
 **/ios/Pods/
+**/ios/Podfile
+**/ios/Podfile.lock
 **/ios/Runner/GeneratedPluginRegistrant.*
 **/.dart_tool/
 **/.flutter-plugins
@@ -55,12 +56,31 @@ Thumbs.db
 **/.packages
 **/pubspec.lock
 **/.metadata
+**/build/
 
 # Supabase
 .branches
 .temp
 **/.supabase/
 
+# Flutter Android
+**/android/local.properties
+**/android/.gradle/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/key.properties
+**/*.keystore
+**/*.jks
+
+# Go
+backend/bin/
+backend/tmp/
+backend/coverage.out
+backend/coverage.html
+backend/build-errors.log
+
 # Misc
 *.bak
 *.tmp
+*.cache
+.turbo/
