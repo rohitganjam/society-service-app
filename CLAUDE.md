@@ -438,23 +438,162 @@ Societies use generic tree structure:
 
 ## Agent System
 
-This project uses specialized Claude Code agents:
+This project uses specialized Claude Code agents for AI-assisted development. Each agent has deep knowledge of its platform's patterns, conventions, and testing requirements.
 
-| Agent | Scope | Purpose |
-|-------|-------|---------|
-| Backend API | `backend/**` | Go API development |
-| Mobile | `apps/*_app/**` | Flutter app development |
-| Frontend Web | `apps/*-web/**` | Next.js dashboard development |
-| Orchestrator | All | Full-stack feature coordination |
+### Available Agents
 
-See `.claude/commands/` for agent prompts and slash commands.
+| Agent | File | Scope | Purpose |
+|-------|------|-------|---------|
+| **Backend API** | `.claude/commands/backend-api.md` | `backend/**` | Go API development with clean architecture |
+| **Mobile** | `.claude/commands/mobile.md` | `apps/*_app/**` | Flutter development with Riverpod, Freezed |
+| **Frontend Web** | `.claude/commands/frontend-web.md` | `apps/*-web/**` | Next.js dashboards with React Query |
+| **Orchestrator** | `.claude/commands/orchestrator.md` | All layers | Full-stack features, API contracts |
 
-## Slash Commands
+### How to Use Agents
 
-| Command | Purpose |
-|---------|---------|
-| `/api` | Create new API endpoint |
-| `/component` | Scaffold Flutter/React component |
-| `/test` | Generate tests for a file |
-| `/feature` | Full-stack feature implementation |
-| `/migrate` | Create database migration |
+**Option 1: Use Slash Commands (Recommended)**
+
+Slash commands automatically apply the right agent's guidelines:
+
+```
+/api POST /orders/{id}/rating - Submit rating for completed order
+/component flutter:resident:orders:RatingCard
+/component web:society:vendors:VendorApprovalTable
+/test backend/internal/services/order_service.go
+/feature Add vendor rating system
+/migrate create_ratings_table
+```
+
+**Option 2: Reference Agent in Conversation**
+
+For more control, reference an agent directly:
+
+```
+Following the backend-api agent guidelines, create the order
+cancellation endpoint with proper validation and error handling
+```
+
+```
+Using the mobile agent patterns, implement the order tracking
+screen with real-time status updates
+```
+
+```
+Using the orchestrator approach, implement the payment confirmation
+feature across backend, mobile, and web
+```
+
+### Slash Commands Reference
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `/api` | Create new API endpoint with handler, service, repository, and tests | `/api GET /vendors - List vendors with filtering` |
+| `/component` | Scaffold component with test file | `/component flutter:vendor:orders:OrderCard` |
+| `/test` | Generate comprehensive tests for any file | `/test backend/internal/handlers/order_handler.go` |
+| `/feature` | Full-stack implementation across all layers | `/feature Add order cancellation with refunds` |
+| `/migrate` | Create database migration with up/down | `/migrate add_rating_to_orders` |
+
+### Agent Capabilities
+
+**Backend API Agent** (`.claude/commands/backend-api.md`)
+- Creates handlers, services, repositories following clean architecture
+- Generates table-driven unit tests
+- Generates handler tests with httptest
+- Uses proper error codes and response formats
+- Follows Go naming conventions
+
+**Mobile Agent** (`.claude/commands/mobile.md`)
+- Creates Freezed models with JSON serialization
+- Implements Riverpod providers (StateNotifier, AsyncNotifier)
+- Sets up GoRouter navigation
+- Creates widget tests with ProviderScope
+- Follows feature-first architecture
+
+**Frontend Web Agent** (`.claude/commands/frontend-web.md`)
+- Creates React Query hooks for data fetching
+- Implements forms with React Hook Form + Zod
+- Uses shadcn/ui components
+- Creates component tests with Testing Library
+- Follows Next.js App Router patterns
+
+**Orchestrator Agent** (`.claude/commands/orchestrator.md`)
+- Breaks down features into platform-specific tasks
+- Defines API contracts before implementation
+- Ensures type consistency across platforms
+- Coordinates testing at all layers
+- Verifies cross-platform integration
+
+### Example Workflows
+
+**Creating a New Feature (Full-Stack)**
+```
+Using the orchestrator, implement vendor ratings:
+- Residents can rate vendors 1-5 stars after order completion
+- Vendors see their average rating on profile
+- Society admins see rating analytics
+```
+
+The orchestrator will:
+1. Define API contract for `/orders/{id}/rating`
+2. Create database migration for ratings table
+3. Implement backend endpoint with tests
+4. Implement mobile rating UI with tests
+5. Implement web analytics with tests
+6. Verify cross-platform consistency
+
+**Creating a Backend Endpoint**
+```
+/api POST /orders/{id}/cancel - Cancel order with reason
+
+Request: { "reason": "string" }
+Response: { "order": Order, "refund_status": "pending" | "processed" }
+Errors: ORDER_NOT_FOUND, ORDER_ALREADY_COMPLETED, CANCELLATION_NOT_ALLOWED
+```
+
+**Creating a Mobile Screen**
+```
+Using the mobile agent, create OrderTrackingScreen that:
+- Shows real-time order status with timeline
+- Displays vendor contact info
+- Has pull-to-refresh
+- Shows loading and error states
+Include widget tests for all states
+```
+
+**Creating a Web Dashboard Component**
+```
+Using the frontend-web agent, create VendorAnalyticsCard that:
+- Shows vendor's rating trend (chart)
+- Displays order count and revenue
+- Has date range filter
+- Uses React Query for data fetching
+Include component tests
+```
+
+### Testing Requirements (Enforced by All Agents)
+
+Every code change includes tests:
+
+| Layer | Required Tests |
+|-------|---------------|
+| Backend | Unit tests for services, handler tests for endpoints |
+| Mobile | Widget tests for screens, provider tests for state |
+| Web | Component tests, hook tests for React Query |
+| Full-stack | E2E tests for critical user flows |
+
+### Files Reference
+
+```
+.claude/
+├── settings.json              # Hooks and permissions config
+└── commands/
+    ├── backend-api.md         # Backend agent prompt
+    ├── mobile.md              # Mobile agent prompt
+    ├── frontend-web.md        # Web agent prompt
+    ├── orchestrator.md        # Orchestrator agent prompt
+    ├── api.md                 # /api slash command
+    ├── component.md           # /component slash command
+    ├── test.md                # /test slash command
+    ├── feature.md             # /feature slash command
+    └── migrate.md             # /migrate slash command
+```
