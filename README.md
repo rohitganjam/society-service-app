@@ -6,7 +6,7 @@ A comprehensive multi-service platform for society management, starting with lau
 
 This is a **monorepo** containing all components of the platform:
 
-- **Backend API** (Node.js + Express on Vercel)
+- **Backend API** (Go Gin API)
 - **Mobile Apps** (Flutter - Resident & Vendor)
 - **Admin Dashboards** (Next.js - Society & Platform Admin)
 - **Shared Packages** (TypeScript types)
@@ -16,7 +16,7 @@ This is a **monorepo** containing all components of the platform:
 
 ```
 society-service-platform/
-├── backend/                    # Node.js API (Vercel)
+├── backend/                    # GO Gin API (Vercel)
 ├── apps/
 │   ├── resident-app/          # Flutter - Resident mobile app
 │   ├── vendor-app/            # Flutter - Vendor mobile app
